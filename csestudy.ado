@@ -421,6 +421,7 @@ mata:
         real vector s, y, coef
         
         return_matrix = colshape(st_data(.,(regcols[1]),pescol),ndates)'
+        return_matrix = return_matrix:-mean(return_matrix')' // De-mean returns by equal weighted daily avg
         A = return_matrix:-mean(return_matrix)
         fullsvd(A,U,s,Vt)
         svd_ev = (s[1..npc]:^2)/(ndates-1)
