@@ -3,7 +3,7 @@ This is the public repository for the Stata command **csestudy** as described in
 
 https://ssrn.com/abstract=4296657
 
-The Stata program is still in beta, but it will correctly estimate the models described in the paper under reasonably general condtions and should provide a reasonable amount of error handling for the user.
+The Stata program is still in beta, but it will correctly estimate the models described in the paper under reasonably general conditions and should provide a reasonable amount of error handling for the user.
 
 Feedback is both welcome and encouraged, so please feel free to open an issue if something appears to fail or work incorrectly.
 
@@ -34,14 +34,14 @@ Optional arguments
 - `npc(integer)`  Number of Principal Components. Defaults to 100
 - `tsols` Estimate the results using the TS-OLS portfolio approach to estimating the standard errors. The default is to use the GLS approach.
 - `PRESAMPLEmarker(name)`  Create a variable `name` which marks the valid pre-event period observations which were used in the estimation.
-- `nobalcheck`  Supresses a check to guarantee that the pre-event period is a balanced panel. This check is somewhat computationally expensive, and users may wish to supress it if they are running multiple simulations.
+- `nobalcheck` Suppresses a check to guarantee that the pre-event period is a balanced panel. This check is somewhat computationally expensive, and users may wish to supress it if they are running multiple simulations.
 
 ### Data Input
 Data from both the event window and the pre-event window should be loaded into Stata when performing the estimation. The independent variables only need to be present and non-missing for the event-date observation and are completely ignored in the pre-event window. Importantly, this means that any conditional statement given by `[if]` or `[in]` applies *only* to the event date observations and not to any other observations.
 
 
 ### Balancing the pre-period data
-The estimation requires a strongly blanced panel in the pre-period in order to work, so any ids which do not have a full set of available returns in the pre-period will be dropped. This is done for the user by keeping only the ids which have the maximum number of observations in the pre-period. This is usually not a major issue in daily stock market data, but if your sample is massively cut down by this operation, you may have an unusual set of pre-period observations. The user should check that the data is at least *mostly* balanced before proceeding.
+The estimation requires a strongly balanced panel in the pre-period in order to work, so any ids which do not have a full set of available returns in the pre-period will be dropped. This is done for the user by keeping only the ids which have the maximum number of observations in the pre-period. This is usually not a major issue in daily stock market data, but if your sample is massively cut down by this operation, you may have an unusual set of pre-period observations. The user should check that the data is at least *mostly* balanced before proceeding.
 
 
 ### Event Date Input

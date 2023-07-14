@@ -316,7 +316,6 @@ end
 *-------------------------------------------------------------------------------
 
 version 13.1
-set matastrict on
 mata:
     void _regressby(string scalar regvars, string scalar grpvar, ///
         string scalar byvars) {
@@ -402,7 +401,6 @@ mata:
 end
 
 
-
 mata:
     void _tsgls(string scalar regvars, string scalar pre_event_sample, ///
         string scalar event_sample, real scalar N, ///
@@ -417,7 +415,7 @@ mata:
         
         // Preallocate regression objects
         real matrix return_matrix, A, U, Vt, M, X, XBX_inv, svd_ev, pca_coeff, pca_score
-        real matrix sig2_e, invOmega, VCV, tilde_X, tilde_y, cholOmega, XX, Xy
+        real matrix sig2_e, Omega, L, VCV, tilde_X, tilde_y, XX, Xy
         real vector s, y, coef
         
         return_matrix = colshape(st_data(.,(regcols[1]),pescol),ndates)'
@@ -447,7 +445,6 @@ mata:
     }
 end
 
-* mata mata drop is_balanced() 
 mata:
     void is_balanced( string scalar varlist, //
         string scalar panelid, string scalar timeid, //
