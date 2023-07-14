@@ -1,0 +1,4 @@
+v 1.0 - 5/31/23
+d Jonathan Cohn, Travis Johnson, Zack Liu, and Malcolm Wardlaw (Maintainer)
+d https://github.com/MalcolmWardlaw/csestudy
+p CSESTUDY: Efficient Inference for Cross-Sectional Event Studies

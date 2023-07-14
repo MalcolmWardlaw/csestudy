@@ -1,0 +1,25 @@
+v 1
+d CSESTUDY: Efficient Inference for Cross-Sectional Event Studies
+d
+d Authors: Jonathan Cohn, Travis Johnson, Zack Liu, and Malcolm Wardlaw
+d Support: mwardlaw@uga.edu
+d
+d ‘CSESTUDY’
+d
+d    KW: Event Studies
+d    KW: GLS
+d    KW: Time Studies
+d    KW: FGLS
+d
+d Requires: Stata version 14?
+d
+d Required packages: ?
+d
+d Distribution-Date: 20230531
+d
+f csestudy.ado
+f time_section
+f _regressby()
+f _tsgls()
+f _isbalanced()
+f  
