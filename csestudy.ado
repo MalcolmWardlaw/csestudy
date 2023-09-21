@@ -82,7 +82,9 @@ program define csestudy_092023, eclass
     qui replace `touse' = 0 if !`event'
     
     tempvar touse_pre_event
-    qui gen `touse_pre_event' = `preevent' & !mi(`lhsvar')
+    tempvar missing
+    egen `missing' = rowmiss(`varlist')
+    qui gen `touse_pre_event' = `preevent' & `missing' == 0
 
 
     * Generate max number of trading dates assuming no gaps
@@ -362,7 +364,7 @@ mata:
         // Generate percentiles under empirical CDF
         coef_cols = 2..cols(pre_event_beta)
         mean_coefs = mean(pre_event_beta[.,coef_cols])
-        event_pctile = colsum(abs(pre_event_beta[.,coef_cols]:-mean_coefs):< abs(event_beta[coef_cols]-mean_coefs)):/rows(pre_event_beta)
+        event_pctile = colsum(abs(pre_event_beta[.,coef_cols]:-mean_coefs):> abs(event_beta[coef_cols]-mean_coefs)):/rows(pre_event_beta)
         
         // If percentile is 1 or 0, adjust by half the rank of N
         event_pctile = (event_pctile :== 0) * 1/(rows(pre_event_beta)*2) + ///
