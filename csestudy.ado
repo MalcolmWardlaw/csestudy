@@ -1,4 +1,7 @@
 *! version 1.1  21sep2023
+* updated to new GLS routine - checks for missing preevent vars
+* GLS uses return residuals
+* correct CDF reporting 
 
 capture program drop csestudy_092023
 program define csestudy_092023, eclass
