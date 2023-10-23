@@ -5,11 +5,11 @@
 * Assume sequential date use, either setup via bcal or manually
 
 capture program drop csestudy
-program define csestudy, eclass sortpreserve
+program define csestudy, eclass
     syntax varlist [if], EVENTdate(string) ///
     [ EVENTENDdate(string)   ///
     NPREeventdays(integer -99) STARTpreeventdate(string) ENDpreeventdate(string) ///
-    noBALance gls npc(integer 100) PRESAMPLEmarker(name) noCHECKbalance timeit ///
+    noBALance gls npc(integer 100) PRESAMPLEmarker(name) timeit ///
     CUMRETurns(name) PRECALCulated newvar(name)]  
 
 
@@ -63,6 +63,18 @@ program define csestudy, eclass sortpreserve
         local endpreeventdate = `eventdate'  - `event_window_length'
     }
 
+
+    
+    if `eventdate'  <= `endpreeventdate' {
+        di as error "Event Date come after pre-event end date."
+        exit
+    }
+
+
+    ****************************************************************************
+    *        THIS IS A VERY COMPLEX SWITCH AND MAY NEED TO BE REFACTORED       *
+    ****************************************************************************
+
     // Make NPREeventdays = 200 the default if both it and ENDpreeventdate are missing
     // Note: npreeventdays defaults to -99 so it can be optional
     if `npreeventdays' == -99 & mi("`startpreeventdate'") {
@@ -72,25 +84,37 @@ program define csestudy, eclass sortpreserve
     // If npreeventdays is missing and endpreeventdate is specified,
     // calculate number of days
     else if `npreeventdays' == -99 & !mi("`startpreeventdate'") {
-        local npreeventdays = `endpreeventdate' - `startpreeventdate' - 1
+        local npreeventdays = `endpreeventdate' - `startpreeventdate' + 1
     }
     // Declare an error if both options are specified
     else if `npreeventdays' != -99 & !mi("`startpreeventdate'") {
         di as error "Cannot specify both -npreeventdays- and -startpreeventdate-"
         exit
     }
-    else if `npreeventdays' < 1 {
-        di as error "-npreeventdays- must be positive "
-        exit
-    } 
-    else if `npreeventdays' > 1  {
+    else if `npreeventdays' >= 1  {
         local startpreeventdate = `endpreeventdate' - `npreeventdays' + 1
+    }
+    else if `npreeventdays' < 1  {
+        di as error "-npreeventdays- must be positive."
+        exit
     }
     else {
         di as error "Something has gone terribly wrong with this switch! FAIL!"
         exit
     }
 
+    qui sum `timevar', meanonly
+    local min_date = r(min)
+    if `min_date' > `startpreeventdate' {
+        di as error "Start of pre-event period is before earliest date in the data"
+        exit
+    }
+
+    if `npreeventdays' < `npc' {
+        di as error "Number of pre-event days must as least as many as the" 
+        di as error "number of principle components"
+        exit
+    } 
 
     // Notify users who use the if option that it only applies
     // to event window observations
@@ -106,6 +130,13 @@ program define csestudy, eclass sortpreserve
         di as error "GLS requires a balanced panel and does not allow nobalance."
         exit
     }
+
+    // This error check might be logically redundant
+    if `startpreeventdate'  >= `endpreeventdate' {
+        di as error "Pre-event start date must come before end date."
+        exit
+    }
+
 
     local cmdline "csestudy `0'"
 
@@ -127,15 +158,6 @@ program define csestudy, eclass sortpreserve
     local sortvar2 `2'
 
 
-    if `startpreeventdate'  >= `endpreeventdate' {
-        di as error "Pre-event start date must come before end date."
-        exit
-    }
-
-    if `eventdate'  <= `endpreeventdate' {
-        di as error "Event Date come after pre-event end date."
-        exit
-    }
 
     di "{hline 50}"
     di as text "Event Window Length:    " as result %-4.0f `event_window_length'
@@ -171,7 +193,6 @@ program define csestudy, eclass sortpreserve
         & !mi(`varlist_delim')
 
 
-    
     if "`sortvar1' `sortvar2'" != "`panelvar' `timevar'" {
         display "NOTE: Your data is not xt sorted. Sorting now..."
         sort  `panelvar' `timevar' 
@@ -203,8 +224,6 @@ program define csestudy, eclass sortpreserve
         rename `lhsvar' `temp_lhsvar' 
         
         gen `lhsvar' = `newvar'        
-
-
     }
 
 
@@ -225,24 +244,11 @@ program define csestudy, eclass sortpreserve
         tempvar totaldays
         qui by `panelvar' (`timevar'): gen long `totaldays' = `tcount'[_N] if `touse'|`touse_pre_event'
         
-        sum `totaldays', meanonly
-        local maxdays = r(max)
+        // NOTE TO AUTHOR: Consider that requiring sequential dates makes balancing on 
+        // totaldays == npreeventdays + 1 guarantee that the panel is balanced
         // Zero out the pre-events and post-events insample indicators where there are not the max obs
-        qui replace `touse' = 0 if `totaldays' != `maxdays'
-        qui replace `touse_pre_event' = 0 if `totaldays' != `maxdays'
-
-        // Balance check if every panel-id exists for every date in touse_pre_event
-        // This operation is somewhat expensive and it is very unlikely that the data 
-        // passes the max-trading day operation but is somehow unbalanced, so it
-        // can be supressed
-        if mi("`checkbalance'") {
-            time_section, label(Check Balance) `timeit'
-            mata is_balanced("`panelvar'", "`timevar'","","`touse_pre_event'")
-            if !r(all_id_unique) {
-                di as smcl as err "Pre-period data cannot be balanced. Check for unusual gaps in data"
-                exit
-            }
-        }
+        qui replace `touse' = 0 if `totaldays' != `npreeventdays' + 1
+        qui replace `touse_pre_event' = 0 if `totaldays' != `npreeventdays' + 1
     }
 
     // Even if the data is not balanced, the command should still throw away all pre-period observations
@@ -278,6 +284,9 @@ program define csestudy, eclass sortpreserve
 
     time_section, label(Mata Code) `timeit'
 
+
+    // NOTE TO AUTHOR: `V' is now vestigal and doesn't need to be specified
+    // fix later.
     mata _tsregress("`varlist'", "`timevar'", "`panelvar'" , "`gls'", "`balance'" , "`touse_pre_event'", "`touse'", `npc', "`b'" , "`V'", "`pcdf'", "`ts_z'", "`betas'")
 
     * local rhsvars w_ltdd w_me w_btm
@@ -293,9 +302,7 @@ program define csestudy, eclass sortpreserve
     matrix rownames `betas' = y1
     matrix colnames `betas' = `rhsvars' :_cons
 
-    matrix rownames `V' = `rhsvars' :_cons
-    matrix colnames `V' = `rhsvars' :_cons
-
+ 
     time_section, label(Post results to e) `timeit'
   
     if !mi("`gls'") {
@@ -332,6 +339,7 @@ program define csestudy, eclass sortpreserve
         la var `presamplemarker' "Pre-Event Sample Used"
     }
 
+    // Put back original left hand side variable if it was re-calculated for a longer window
     if `reset_lhsvar' {
         drop `lhsvar'
         rename `temp_lhsvar' `lhsvar'
@@ -355,7 +363,7 @@ mata:
 
         // Convert variable names to column indices
         real rowvector regcols
-        real scalar time_column, startobs
+        real scalar time_column, startobs, nrows, ncols
 
         regcols          = st_varindex(tokens(regvars))
         time_column      = st_varindex(timevar)
@@ -392,16 +400,18 @@ mata:
         startobs = 1
         i = 1
         last_obs_flag = 0
+        nrows = rows(M)
+        ncols = cols(M)
 
         // Loop through to calculate OLS betas and, if GLS is specified, residuals.
-        for (obs=1; obs <= rows(M); obs++) {
+        for (obs=1; obs <= nrows; obs++) {
 
-            if (obs == rows(M)) last_obs_flag = 1
+            if (obs == nrows) last_obs_flag = 1
             else if (M[obs,1] != M[obs+1,1]) last_obs_flag = 1
             
             if (last_obs_flag) {
                     y = M[startobs..obs, 3]
-                    X = M[startobs..obs, 4..cols(M)] , J(obs - startobs + 1,1,1)
+                    X = M[startobs..obs, 4..ncols] , J(obs - startobs + 1,1,1)
                     XX = quadcross(X,X)
                     Xy = quadcross(X,y)
                     // ------------ COMPUTE COEFFICIENTS --------------------
@@ -435,9 +445,7 @@ mata:
             real vector s
             A = residuals :- mean(residuals)
             
-            
             fullsvd(A,U,s,Vt)
-            
 
             pca_coeff = Vt'[,1..npc]
             pca_score = A*pca_coeff
@@ -466,7 +474,6 @@ mata:
                 beta = cholsolve(XX,Xy)
                 pre_event_beta[i,2..cols(regcols)+1] = beta'
             }
-            
         }
 
         st_subview(y, E, ., 3)
@@ -502,9 +509,7 @@ mata:
         sd = (sqrt(diagonal(quadvariance(pre_event_beta[.,coef_cols])) * ///
             (rows(pre_event_beta)+1) / rows(pre_event_beta)))'
         ts_z = ts_beta :/ sd
-        VCV = diag(-abs(event_beta[coef_cols]):*invnormal(event_pctile/2):^-1):^2
         st_matrix(bmat, event_beta[.,coef_cols])
-        st_matrix(Vmat, VCV)
         st_matrix(pcdf, event_pctile)
         st_matrix(ts_zmat, ts_z)
         st_matrix(betas, pre_event_beta[.,coef_cols])
@@ -525,28 +530,6 @@ else {
     mata numeric matrix solvelower_wrapper(numeric matrix A, numeric matrix B) return (solvelower(A,B))
 }
 
-
-
-capture mata mata drop is_balanced()
-mata:
-    void is_balanced( string scalar varlist, ///
-        string scalar panelid, string scalar timeid, ///
-        string scalar touse) {
-        
-        real matrix X, unique_ids, sample_marker
-        real scalar valid_time, i
-
-        st_view(X,.,(panelid, timeid, tokens(varlist)), touse)
-        valid_time = 1
-        for (i=2; i<= rows(unique_ids); i++) {
-            if (unique_ids[1,2] != unique_ids[i,2]) {
-                valid_time = 0
-                break
-            }
-        }
-        st_numscalar("r(all_id_unique)", valid_time)
-    }
-end
 
 
 
