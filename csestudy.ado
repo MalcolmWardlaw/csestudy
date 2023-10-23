@@ -1,13 +1,106 @@
-*! version 1.1  21sep2023
+*! version 1.2  21Ocotber2023
 * updated to new GLS routine - checks for missing preevent vars
 * GLS uses return residuals
 * correct CDF reporting 
+* Assume sequential date use, either setup via bcal or manually
 
-capture program drop csestudy_092023
-program define csestudy_092023, eclass
-    syntax varlist [if] [in], EVentdate(string) STARTpreeventdate(string) ///
-    ENDpreeventdate(string) ///
-    [noBALance gls npc(integer 100) PRESAMPLEmarker(name) nobalcheck timeit]  
+capture program drop csestudy
+program define csestudy, eclass sortpreserve
+    syntax varlist [if], EVENTdate(string) ///
+    [ EVENTENDdate(string)   ///
+    NPREeventdays(integer -99) STARTpreeventdate(string) ENDpreeventdate(string) ///
+    noBALance gls npc(integer 100) PRESAMPLEmarker(name) noCHECKbalance timeit ///
+    CUMRETurns(name) PRECALCulated newvar(name)]  
+
+
+    _xt
+    local panelvar = r(ivar) 
+    local timevar = r(tvar)
+    // Get format of timevar if bcal is enabled
+    local datefmt : format `timevar'
+    if substr("`datefmt'",1,3) != "%tb" {
+        di _n "{hline 55}"
+        display as text "Date is not formatted using bcal. While not necessary,"
+        display as text "doing so is encouraged for ease of use and reporting."
+        display as text "Non-sequential calendar date conventions which do not "
+        display as text "account for weekends and holidays will produce errors."
+        display as text "See help file for more details."
+        di "{hline 55}" _n
+
+    }
+
+
+    // Validate nonmissing date inputs which allow string equations
+    // like bofd("mycal",mdy(#,#,####))
+    foreach dateinput in eventdate startpreeventdate endpreeventdate ///
+        eventenddate {
+        * Evaluate input macro
+        if !mi("``dateinput''") {
+            capture local `dateinput' = ``dateinput''
+            capture confirm number ``dateinput''
+            if _rc != 0 {
+                di as error "Invalid value for `dateinput': ``dateinput''"
+                exit _rc
+            }
+        }
+    }
+
+    // If eventenddate is missing, assume = eventdate (a single day event)
+    if mi("`eventenddate'") {
+        local eventenddate = `eventdate'
+    }
+
+    local event_window_length = `eventenddate' - `eventdate' + 1
+    
+    capture assert  `event_window_length' > 0
+    if _rc != 0 {
+        di as error "Event end date is before event start date"
+        exit _rc
+    }
+
+    // If startpreeventdate is not specified, make it one event_window before eventdate
+    if mi("`endpreeventdate'") {
+        local endpreeventdate = `eventdate'  - `event_window_length'
+    }
+
+    // Make NPREeventdays = 200 the default if both it and ENDpreeventdate are missing
+    // Note: npreeventdays defaults to -99 so it can be optional
+    if `npreeventdays' == -99 & mi("`startpreeventdate'") {
+        local npreeventdays = 200
+        local startpreeventdate = `endpreeventdate' - `npreeventdays' + 1
+    }
+    // If npreeventdays is missing and endpreeventdate is specified,
+    // calculate number of days
+    else if `npreeventdays' == -99 & !mi("`startpreeventdate'") {
+        local npreeventdays = `endpreeventdate' - `startpreeventdate' - 1
+    }
+    // Declare an error if both options are specified
+    else if `npreeventdays' != -99 & !mi("`startpreeventdate'") {
+        di as error "Cannot specify both -npreeventdays- and -startpreeventdate-"
+        exit
+    }
+    else if `npreeventdays' < 1 {
+        di as error "-npreeventdays- must be positive "
+        exit
+    } 
+    else if `npreeventdays' > 1  {
+        local startpreeventdate = `endpreeventdate' - `npreeventdays' + 1
+    }
+    else {
+        di as error "Something has gone terribly wrong with this switch! FAIL!"
+        exit
+    }
+
+
+    // Notify users who use the if option that it only applies
+    // to event window observations
+    if !mi("`if'") {
+        di _n as text "NOTE: the -if- expression only applies to observations in the event window."
+        di    as text "The pre-event window will exclude any panel ids excluded by -if- in the "
+        di    as text "event window, but if you wish to exclude other pre-event window observations"
+        di    as text "based on certain criteria, you must do so manually." _n
+    }
+
 
     if !mi("`balance'") & !mi("`gls'") {
         di as error "GLS requires a balanced panel and does not allow nobalance."
@@ -26,9 +119,6 @@ program define csestudy_092023, eclass
     }
 
 
-    _xt
-    local panelvar = r(ivar) 
-    local timevar = r(tvar)
 
     qui desc, short varlist
     local sortlist = r(sortlist)
@@ -36,16 +126,6 @@ program define csestudy_092023, eclass
     local sortvar1 `1'
     local sortvar2 `2'
 
-    * Validate eventdate and start and end pre-event dates
-    foreach dateinput in eventdate startpreeventdate endpreeventdate {
-        * Evaluate input macro
-        capture local `dateinput' = ``dateinput''
-        capture confirm number ``dateinput''
-        if _rc != 0 {
-            di as error "Invalid value for `dateinput': ``dateinput''"
-            exit _rc
-        }
-    }
 
     if `startpreeventdate'  >= `endpreeventdate' {
         di as error "Pre-event start date must come before end date."
@@ -57,15 +137,19 @@ program define csestudy_092023, eclass
         exit
     }
 
-    
+    di "{hline 50}"
+    di as text "Event Window Length:    " as result %-4.0f `event_window_length'
+    di as text "Event Window:           " as result `datefmt' `eventdate' " to " `datefmt'  `eventenddate'
+    di as text "# of pre-event periods: " as result %-4.0f `npreeventdays'
+    di as text "Pre-Event Window:       " as result `datefmt' `startpreeventdate' " to " `datefmt'  `endpreeventdate'
+    di as text "{hline 50}"
+
     tokenize `varlist'
     local lhsvar `1'
     macro shift
     local rhsvars `*'
     scalar Dim = wordcount("`rhsvars' constant")
 
-    tempvar preevent
-    qui gen `preevent' = inrange(`timevar',`startpreeventdate' , `endpreeventdate')
 
     time_section, label(Panel Setup) `timeit'
 
@@ -76,47 +160,82 @@ program define csestudy_092023, eclass
         di as error "Event date does not occur in data. Check to make sure your format is correct."
         exit
     }
-    gen `event' = `timevar' == `eventdate'
+    qui gen byte `event' = `timevar' == `eventdate'
 
     marksample touse
     qui replace `touse' = 0 if !`event'
     
+    local varlist_delim : subinstr local varlist " " ",", all 
     tempvar touse_pre_event
-    tempvar missing
-    egen `missing' = rowmiss(`varlist')
-    qui gen `touse_pre_event' = `preevent' & `missing' == 0
+    qui gen byte `touse_pre_event' = inrange(`timevar',`startpreeventdate' , `endpreeventdate') ///
+        & !mi(`varlist_delim')
 
 
-    * Generate max number of trading dates assuming no gaps
+    
+    if "`sortvar1' `sortvar2'" != "`panelvar' `timevar'" {
+        display "NOTE: Your data is not xt sorted. Sorting now..."
+        sort  `panelvar' `timevar' 
+    }
+
+    // If event window length is greater than 1 and the precalculated option has not been specified
+    // calculate the rolling window of returns
+    local reset_lhsvar = 0
+    if `event_window_length' > 1 & mi("`precalculated'") {
+        time_section, label(Calc multi-day window) `timeit'
+        local reset_lhsvar = 1
+
+        if mi("`newvar'") {
+            tempvar newvar
+        }
 
 
+        // Generate rolling lead window equation        
+        local ret_eq `lhsvar'
+        local j = `event_window_length' - 1
+        forval i = 1/`j' {
+            local ret_eq `ret_eq' + f`i'.`lhsvar'
+        }
+        
+        qui gen `newvar' = `ret_eq' if inrange(`timevar',  `startpreeventdate' , `endpreeventdate')  | `timevar' == `eventdate'  
+
+        // Preserve original lhsvar
+        tempvar temp_lhsvar
+        rename `lhsvar' `temp_lhsvar' 
+        
+        gen `lhsvar' = `newvar'        
+
+
+    }
+
+
+    // Try to balance the panel by excluding all panel ids which do not have
+    // the maximum number of observed days
     if mi("`balance'") {
         time_section, label(Balancing Routine) `timeit'
-        if "`sortvar1' `sortvar2'" != "`panelvar' `timevar'" {
-            display "NOTE: Your data is not sorted. Sorting..."
-            sort  `panelvar' `timevar' 
-        }
-        * Get min and max pre-dates
+
+        // Get maximum number of total trading dates for all stocks
         tempvar tcount
-        qui by `panelvar' (`timevar'): gen `tcount' = sum(`preevent')
-        qui by `panelvar' (`timevar'): replace `tcount' = . if _n != _N
-        sum `tcount', meanonly
-        local n_pre_dates = r(max)
+        qui by `panelvar' (`timevar'): gen long `tcount' /// 
+            = sum(`touse'|`touse_pre_event') if `touse'|`touse_pre_event'
+        // Copy non-empty count to the bottom of each panelvar
+        qui by `panelvar' (`timevar'): replace `tcount' = `tcount'[_n - 1] /// 
+            if mi(`tcount') ///
+            | (!mi(`tcount'[_n - 1]) & `tcount'[_n - 1] > `tcount')        
+        // Generate totaldays as last value of tcount, which has been copied to the bottom
+        tempvar totaldays
+        qui by `panelvar' (`timevar'): gen long `totaldays' = `tcount'[_N] if `touse'|`touse_pre_event'
         
-        tempvar in_sample_test full_obs_test
-        
-        qui by `panelvar' (`timevar'): gen `in_sample_test' = cond(sum(`touse')>0,1,0)
-        qui by `panelvar' (`timevar'): gen `full_obs_test' = sum(`touse_pre_event')
-        
-        * Mark out pre_event sample which are not in sample during the event period
-        qui by `panelvar' (`timevar'): replace `touse_pre_event' = 0 if `in_sample_test'[_N] != 1 | `full_obs_test'[_N] != `n_pre_dates'
+        sum `totaldays', meanonly
+        local maxdays = r(max)
+        // Zero out the pre-events and post-events insample indicators where there are not the max obs
+        qui replace `touse' = 0 if `totaldays' != `maxdays'
+        qui replace `touse_pre_event' = 0 if `totaldays' != `maxdays'
 
-        * Mark out the test sample if there is not a full set of obserations
-        * for the pre-period
-        qui by `panelvar' (`timevar'): replace `touse' = 0 if `full_obs_test'[_N] != `n_pre_dates' | `in_sample_test'[_N] != 1
-
-        * Balance check if every panel-id exists for every date in touse_pre_event
-        if mi("`balcheck'") {
+        // Balance check if every panel-id exists for every date in touse_pre_event
+        // This operation is somewhat expensive and it is very unlikely that the data 
+        // passes the max-trading day operation but is somehow unbalanced, so it
+        // can be supressed
+        if mi("`checkbalance'") {
             time_section, label(Check Balance) `timeit'
             mata is_balanced("`panelvar'", "`timevar'","","`touse_pre_event'")
             if !r(all_id_unique) {
@@ -124,12 +243,23 @@ program define csestudy_092023, eclass
                 exit
             }
         }
-        // I changed this sort to match unbalanced data will make _ts_regress faster?
-        
+    }
+
+    // Even if the data is not balanced, the command should still throw away all pre-period observations
+    // that are screened out by -if- in the event period.
+    else {
+        tempvar tcount
+        qui by `panelvar' (`timevar'): gen long `tcount' = `touse'
+        // Copy non-empty count to the bottom of each panelvar
+        qui by `panelvar' (`timevar'): replace `tcount' = `tcount'[_n - 1] if !mi(`tcount'[_n-1]) & `tcount'==0
+
+        // Zero out touse_pre_event if last value of tcount is 0
+        qui by `panelvar' (`timevar'): replace `touse_pre_event' = 0 if `tcount'[_N] == 0
     }
 
     qui count if `touse'
     local nobs = r(N)
+
 
     ****************************************************************************
     *                                 Run Test                                 *
@@ -148,7 +278,6 @@ program define csestudy_092023, eclass
 
     time_section, label(Mata Code) `timeit'
 
-    sort `timevar' `panelvar' 
     mata _tsregress("`varlist'", "`timevar'", "`panelvar'" , "`gls'", "`balance'" , "`touse_pre_event'", "`touse'", `npc', "`b'" , "`V'", "`pcdf'", "`ts_z'", "`betas'")
 
     * local rhsvars w_ltdd w_me w_btm
@@ -188,21 +317,24 @@ program define csestudy_092023, eclass
         _col(41) as result %9.3f `ts_z'[1, colnumb(`ts_z',"`colnm'") ] 
     }
     di as text "{hline 13}{c BT}{hline 40}" _n
-    di as result "Note: The e(V) matrix is reverse-engineered from the CDF p-values"
-    di as result "to be compatible with table output and should not be used literally."
 
-    ereturn post `b' `V', depname("`lhsvar'") esample(`touse')
+    ereturn post `b' , depname("`lhsvar'") esample(`touse')
     ereturn local  cmd  "csestudy"
     ereturn local  cmdline  "`cmdline'"
     ereturn scalar N = `nobs'
     ereturn scalar n_pe_dates = `ndates'
-    ereturn matrix ts_z = `ts_z'
-    ereturn matrix pcdf = `pcdf'
+    ereturn matrix z = `ts_z'
+    ereturn matrix p = `pcdf'
     ereturn matrix betas = `betas'
 
     if !mi("`presamplemarker'") {
-        gen byte `presamplemarker' = `touse_pre_event'
+        qui gen byte `presamplemarker' = `touse_pre_event'
         la var `presamplemarker' "Pre-Event Sample Used"
+    }
+
+    if `reset_lhsvar' {
+        drop `lhsvar'
+        rename `temp_lhsvar' `lhsvar'
     }
 
     time_section, off `timeit'
@@ -233,64 +365,67 @@ mata:
 
 
         // Preallocate regression objects
-        real matrix residuals, XX, Xy, M, E, y, X
+        real matrix residuals, XX, Xy, M, E, y, X, Xstack, ystack
         real scalar obs
         real vector beta, pre_event_dates, event_beta 
-
         // Setup Matrices for pre and post period
         st_view(E, . , (time_column,panel_column,regcols), event_sample_col)
-        // If nobalance option selected and data is not already sorted by time,
-        //  import as a data matrix. Otherwise import as a view
-        // 09/20/23 need to think about this
-        if (nobalance == "nobalance" & st_local("sortvar1") != timevar) {
-            M = st_data(. , (time_column,panel_column,regcols), pre_event_sample_col)
-            M = sort(M,(1,2))
-        }
-        else {
-            //st_view(M, . , (time_column,panel_column,regcols), pre_event_sample_col)
-            M = st_data(. , (time_column,panel_column,regcols), pre_event_sample_col)
-        }
+        // M needs to be sorted, and partial sorting of the data may be required,
+        // so M is data not a view
+        M = st_data(. , (time_column,panel_column,regcols), pre_event_sample_col)
+        M = sort(M,(1,2))
 
         pre_event_dates = uniqrows(M[.,1])
         firms = rows(uniqrows(M[.,2]))
         ndates = rows(pre_event_dates)
         pre_event_beta = J(ndates, 1 + cols(regcols), .)
         residuals = J(ndates, firms, .)
-        
+     
+        // Allocate stacked X and y variables for fast GLS estimation
+        if (gls == "gls") {
+            Xstack = J(firms,ndates*cols(regcols),.)
+            ystack = J(firms,ndates,.)
+        }
+
+
         //calculate pre-event betas
         startobs = 1
         i = 1
         last_obs_flag = 0
 
-        //This works for balanced and for non-balanced
+        // Loop through to calculate OLS betas and, if GLS is specified, residuals.
         for (obs=1; obs <= rows(M); obs++) {
 
             if (obs == rows(M)) last_obs_flag = 1
             else if (M[obs,1] != M[obs+1,1]) last_obs_flag = 1
             
             if (last_obs_flag) {
-                    st_subview(y, M, (startobs,obs), 3)
-                    st_subview(X, M, (startobs,obs), 4\.)
-                    X = X,J(rows(X),1,1)
+                    y = M[startobs..obs, 3]
+                    X = M[startobs..obs, 4..cols(M)] , J(obs - startobs + 1,1,1)
                     XX = quadcross(X,X)
                     Xy = quadcross(X,y)
                     // ------------ COMPUTE COEFFICIENTS --------------------
                     beta    = cholsolve(XX,Xy)
                     // ------------ STORE OUTPUT ----------------------------
-                    st_subview(curdate,M,obs,1)
+                    curdate = M[obs,1]
                     pre_event_beta[i,.] = curdate, beta'
-
-                    if (gls == "gls") {    
+   
+                    if (gls == "gls") {
+                        // If GLS option is invoked, store residuals for PCA estimation
                         residuals[i,.] = (y-X*beta)'
+                        // Stack X and y variables into matrices
+                        // Note: this requires a balanced panel as per the GLS option
+                        Xstack[.,1+cols(regcols)*(i-1)..cols(regcols)*i] = X
+                        ystack[.,i] = y
+
                     }  
 
-                    startobs = obs + 1
+                    startobs = obs + 1 
                     last_obs_flag = 0
                     i = i + 1
-
             }
-
         } 
+
 
         if (gls == "gls") {    
             
@@ -298,49 +433,40 @@ mata:
             real matrix U, Vt, pca_coeff, pca_score
             real matrix sig2_e, Omega, L
             real vector s
-
             A = residuals :- mean(residuals)
-
+            
+            
             fullsvd(A,U,s,Vt)
+            
+
             pca_coeff = Vt'[,1..npc]
             pca_score = A*pca_coeff
             sig2_e = variance(A - pca_score*pca_coeff')
             // Omega should be symmetric, but Mata doesn't recognize that it is
-            Omega =  makesymmetric(pca_coeff * diag(variance(pca_score)) * pca_coeff' + diag(sig2_e))
+            // so we coerce it to be symmetric 
+            Omega =  makesymmetric(pca_coeff * diag(variance(pca_score)) * // 
+                pca_coeff' + diag(sig2_e))
             
             L = cholesky(Omega)
-
-
-            //redo pre-event betas using GLS
-            startobs = 1
-            i = 1
-            last_obs_flag = 0
             
-            for (obs=1; obs <= rows(M); obs++) {
-               
-                if (obs == rows(M)) last_obs_flag = 1
-                else if (M[obs,1] != M[obs+1,1]) last_obs_flag = 1
-                
-                if (last_obs_flag) {
-                
-                    st_subview(y, M, (startobs,obs), 3)
-                    st_subview(X, M, (startobs,obs), 4\.)
-                    X = X,J(rows(X),1,1)             
-                    X = solvelower_wrapper(L,X)
-                    y = solvelower_wrapper(L,y)
-                    XX = quadcross(X,X)
-                    Xy = quadcross(X,y)
-                    // ------------ COMPUTE COEFFICIENTS --------------------
-                    beta    = cholsolve(XX,Xy)
-                    // ------------ STORE OUTPUT ----------------------------
-                    //st_subview(curdate,M,obs,1)
-                    pre_event_beta[i,.] = M[obs,1], beta'
-                    startobs = obs + 1
-                    last_obs_flag = 0
-                    i = i + 1
-                    
-                }
-            } 
+
+            // Solve for LX and Ly using cholesky decomposition
+            Xstack = solvelower_wrapper(L,Xstack)
+            ystack = solvelower_wrapper(L,ystack)
+            
+
+            // Loop though the stacked X and y tilde to get the time series GLS betas
+
+            
+            for (i = 1; i<=cols(ystack); i++) {
+                X = Xstack[.,1+cols(regcols)*(i-1)..cols(regcols)*i]
+                y = ystack[.,i]
+                XX = quadcross(X,X)
+                Xy = quadcross(X,y)
+                beta = cholsolve(XX,Xy)
+                pre_event_beta[i,2..cols(regcols)+1] = beta'
+            }
+            
         }
 
         st_subview(y, E, ., 3)
@@ -348,13 +474,11 @@ mata:
         X = X,J(rows(X),1,1)
 
         if (gls == "gls") {
-                X = solvelower_wrapper(L,X)
-                y = solvelower_wrapper(L,y)
+            X = solvelower_wrapper(L,X)
+            y = solvelower_wrapper(L,y)
         }
-        
         XX = quadcross(X,X)
         Xy = quadcross(X,y)
-        
         event_beta = E[1,1],cholsolve(XX,Xy)'
 
 
@@ -401,17 +525,18 @@ else {
     mata numeric matrix solvelower_wrapper(numeric matrix A, numeric matrix B) return (solvelower(A,B))
 }
 
+
+
 capture mata mata drop is_balanced()
 mata:
-    void is_balanced( string scalar varlist, //
-        string scalar panelid, string scalar timeid, //
+    void is_balanced( string scalar varlist, ///
+        string scalar panelid, string scalar timeid, ///
         string scalar touse) {
         
-        real matrix X, unique_ids
+        real matrix X, unique_ids, sample_marker
         real scalar valid_time, i
 
         st_view(X,.,(panelid, timeid, tokens(varlist)), touse)
-        unique_ids = uniqrows(X[,2],1)
         valid_time = 1
         for (i=2; i<= rows(unique_ids); i++) {
             if (unique_ids[1,2] != unique_ids[i,2]) {
