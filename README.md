@@ -15,39 +15,54 @@ The paper proposes two related approaches which leverage the time-series of past
 
 The first is a time-series adjusted portfolio approach (TSOLS) in which the coefficients are compared against a pre-event window of daily returns and adjusted rejection criteria are computed in the form of an adjusted standard error, a parameterized z-score, and a p-value estimated from the empirical distribution (the preferred metric in this approach.)
 
-The second is a GLS based approach in which the covariance matrix Ω is estimated from the pre-event window using a principal components approach to reduce the dimensionality. This second method is substantially more efficient, and is the default method provided by this command.
+The second is a GLS based approach in which the covariance matrix Ω is estimated from the pre-event window using a principal components approach to reduce the dimensionality. This second method is substantially more efficient, and is the preferred approach.
 
 ## Syntax and Usage
 
-The data must first be properly `tsset` by id and time.
+The data must first be properly `tsset` by id and time. Further, for the default options to work, the time id must be specified as a _sequential_ integer in which non-data days like holidays and weekends are ommitted, i.e. if friday is 10 and there are no observations on Saturday or Sunday then the following monday is 11. The simplest way to do this is to call `bcal create` on the panel before executing the command. This method is strongly preferred as it allows the user to specify dates in a number of different ways, and the user can conveniently center the event date at t=0. See the stata help for more detail. 
 
 The syntax is given as follows:
 
-`csestudy depvar indepvars [if] [in], EVentdate(string) STARTpreeventdate(string) ENDpreeventdate(string) [options]`
-
-The required arguments are:
+```stata
+csestudy depvar indepvars [if] [in], EVENTdate
+  [
+  EVENTENDdate(string)   ///
+  NPREeventdays(integer) ///
+  STARTpreeventdate(string) ENDpreeventdate(string) ///
+  noBALance gls npc(integer 100) PRESAMPLEmarker(name) ///
+  newvar(name) PRECALCulated
+  ] 
+```
+The only _required_ option is:
 - `EVentdate` This is the date of the event.
-- `STARTpreeventdate` The first date of the pre-event period
-- `ENDpreeventdate` The last date of the pre-event period
 
-Optional arguments
+If the event date is specified but no other options are specified, then the pre-event window is assumed to be 200 periods long, to begin 201 periods before the event, and end 1 period before the event.
+
+- If `NPREeventdays(n)` is specified, it overrides the length of the pre-event window default to n
+- If `ENDpreeventdate()` is specified, it specifies the last date of the pre-event period, with n total pre-event days
+- If `STARTpreeventdate()` is specified, it overrides the the default number of event days in favor of the first date of the pre-event period. This option cannot be specified with NPREeventdays.
+
+- If `EVENTENDdate()` is specified, then the event is assumed to be a multi-day event and a cumulative rolling sum of `depvar` is calculated as the new dependent variable. Note that this feature is new and may still be somewhat buggy, so use with caution.
+- `newvar(name)` will store the value of the cumulative rolling sum of `depvar` as a new variable specified by `name`.
+- If `PRECALCulated` is specified, the program will assume that the exsting value of `depvar` is already correctly pre-calculated according to the length of the event window and will proceed as if each window is reported on the first day.
+ 
+Additional Options:
 - `npc(integer)`  Number of Principal Components. Defaults to 100
-- `tsols` Estimate the results using the TS-OLS portfolio approach to estimating the standard errors. The default is to use the GLS approach.
+- `gls` Estimate the results using the GLS.
 - `PRESAMPLEmarker(name)`  Create a variable `name` which marks the valid pre-event period observations which were used in the estimation.
-- `nobalcheck` Suppresses a check to guarantee that the pre-event period is a balanced panel. This check is somewhat computationally expensive, and users may wish to supress it if they are running multiple simulations.
+- `noBALance` omits the initial balancing routine, which may slightly speed up the estimation if the user knows the sample is correctly balanced.
+ 
 
 ### Data Input
-Data from both the event window and the pre-event window should be loaded into Stata when performing the estimation. The independent variables only need to be present and non-missing for the event-date observation and are completely ignored in the pre-event window. Importantly, this means that any conditional statement given by `[if]` or `[in]` applies *only* to the event date observations and not to any other observations.
+Data from both the event window and the pre-event window should be loaded into Stata when performing the estimation. Note that any conditional statement given by `[if]` applies *only* to the event date observations and not to any other observations.
 
 
 ### Balancing the pre-period data
-The estimation requires a strongly balanced panel in the pre-period in order to work, so any ids which do not have a full set of available returns in the pre-period will be dropped. This is done for the user by keeping only the ids which have the maximum number of observations in the pre-period. This is usually not a major issue in daily stock market data, but if your sample is massively cut down by this operation, you may have an unusual set of pre-period observations. The user should check that the data is at least *mostly* balanced before proceeding.
+The GLS estimation requires a strongly balanced panel in the pre-period in order to work, so any ids which do not have a full set of available returns in the pre-period will be dropped. This is done for the user by keeping only the ids which have the maximum number of observations in the pre-period. This is usually not a major issue in daily stock market data, but if your sample is massively cut down by this operation, you may have an unusual set of pre-period observations. The user should check that the data is at least *mostly* balanced before proceeding.
 
 
 ### Event Date Input
-Note that the command will accept dates either as integer values or as date functions such as `mdy()` or `td()`. Trading dates are assumed to be contiguous, but the command is fault tolerant and will accept data which has been `tsset` to include weekends and non-trading days but will also not check if unintended gaps exist where trading days did occur. 
-
-If the cumulative returns are calculated over a window, only the date which contains full event returns should be used, and care should be taken to make sure that the earliest event window date does not overlap with the last pre-event window date.
+Note that the command will accept dates either as integer values or an Stata function which can be evaluated upon execution. Trading dates are assumed to be contiguous, but when using dates created by the `bcal` option in Stata, the command can evaluate a bcal specified date such as `eventdate(bofd("mycal",mdy(9,19,2011)))`
 
 ## Example
 ...
