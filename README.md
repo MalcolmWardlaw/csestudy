@@ -11,20 +11,20 @@ Feedback is both welcome and encouraged, so please feel free to open an issue if
 
 As described in Cohn, Johnson, Liu, and Wardlaw (2023), testing the cross-sectional valuation effects of a specific event for firms with different characteristics is somewhat complicated. Standard event study methodologies usually fail to account for the strong cross-correlation structure in stock returns across a host of characteristics, and the standard approach of clustering the standard errors by industry is completely unable to account for this problem.
 
-The paper proposes two related approaches which leverage the time-series of past returns to account for the implied correlation structure:
+The paper proposes two additional approaches which leverage the time-series of past returns to account for the implied correlation structure:
 
-The first is a time-series adjusted portfolio approach (TSOLS) in which the coefficients are compared against a pre-event window of daily returns and adjusted rejection criteria are computed in the form of an adjusted standard error, a parameterized z-score, and a p-value estimated from the empirical distribution (the preferred metric in this approach.)
+The first is a time-series adjusted portfolio approach to inference about standard errors in which the coefficients are compared against a pre-event window of daily returns and adjusted rejection criteria are computed in the form of a parameterized z-score and a p-value estimated from the empirical distribution (the preferred metric in this approach.)
 
-The second is a GLS based approach in which the covariance matrix Ω is estimated from the pre-event window using a principal components approach to reduce the dimensionality. This second method is substantially more efficient, and is the preferred approach.
+The second is a GLS based approach in which the covariance matrix Ω is also estimated from the pre-event window using a principal components approach to reduce the dimensionality. This second method adds substantial efficiency, and is the preferred approach.
 
 ## Syntax and Usage
 
-The data must first be properly `tsset` by id and time. Further, for the default options to work, the time id must be specified as a _sequential_ integer in which non-data days like holidays and weekends are ommitted, i.e. if friday is 10 and there are no observations on Saturday or Sunday then the following monday is 11. The simplest way to do this is to call `bcal create` on the panel before executing the command. This method is strongly preferred as it allows the user to specify dates in a number of different ways, and the user can conveniently center the event date at t=0. See the stata help for more detail. 
+The data must first be properly `tsset` by id and time. Further, for the default options to work, the time id must be specified as a _sequential_ integer in which non-data days like holidays and weekends are ommitted, i.e. if Friday is 10 and there are never observations on Saturday or Sunday then the following Monday is 11. The simplest way to do this is to call `bcal create` on the panel before executing the command. This method is strongly preferred as it allows the user to specify dates in a number of different ways, and the user can conveniently center the event date at t=0. See the stata help for more detail. 
 
 The syntax is given as follows:
 
 ```stata
-csestudy depvar indepvars [if] [in], EVENTdate
+csestudy depvar indepvars [if], EVENTdate
   [
   EVENTENDdate(string)   ///
   NPREeventdays(integer) ///
