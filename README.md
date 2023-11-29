@@ -3,7 +3,7 @@ This is the public repository for the Stata command **csestudy** as described in
 
 https://ssrn.com/abstract=4296657
 
-The Stata program is still in beta, but it will correctly estimate the models described in the paper under reasonably general conditions and should provide a reasonable amount of error handling for the user.
+The Stata program is still in very early beta, but it will correctly estimate the models described in the paper under reasonably general conditions and should provide a reasonable amount of error handling for the user.
 
 Feedback is both welcome and encouraged, so please feel free to open an issue if something appears to fail or work incorrectly.
 
@@ -11,11 +11,10 @@ Feedback is both welcome and encouraged, so please feel free to open an issue if
 
 As described in Cohn, Johnson, Liu, and Wardlaw (2023), testing the cross-sectional valuation effects of a specific event for firms with different characteristics is somewhat complicated. Standard event study methodologies usually fail to account for the strong cross-correlation structure in stock returns across a host of characteristics, and the standard approach of clustering the standard errors by industry is completely unable to account for this problem.
 
-The paper proposes two additional approaches which leverage the time-series of past returns to account for the implied correlation structure:
+The paper proposes an approach which leverage the time-series of past returns to account for the implied correlation structure:
 
-The first is a time-series adjusted portfolio approach to inference about standard errors in which the coefficients are compared against a pre-event window of daily returns and adjusted rejection criteria are computed in the form of a parameterized z-score and a p-value estimated from the empirical distribution (the preferred metric in this approach.)
+The estimation uses a time-series adjusted portfolio approach to inference about standard errors in which the coefficients are compared against a pre-event window of daily returns and adjusted rejection criteria are computed in the form of a parameterized z-score and a p-value estimated from the empirical distribution (the preferred metric in this approach.)
 
-The second is a GLS based approach in which the covariance matrix Ω is also estimated from the pre-event window using a principal components approach to reduce the dimensionality. This second method adds substantial efficiency, and is the preferred approach.
 
 ## Syntax and Usage
 
