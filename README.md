@@ -46,11 +46,10 @@ If the event date is specified but no other options are specified, then the pre-
 - If **<ins>precalc</ins>ulated** is specified, the program will assume that the exsting value of **depvar** is already correctly pre-calculated according to the length of the event window and will proceed as if each window is reported on the first day.
  
 Additional Options:
-- **npc(integer)**  Number of Principal Components. Defaults to 100
-- **gls** Estimate the results using the GLS.
 - **<ins>presample</ins>marker(name)**  Create a variable **name** which marks the valid pre-event period observations which were used in the estimation.
 - **<ins>nobal</ins>ance** omits the initial balancing routine, which may slightly speed up the estimation if the user knows the sample is correctly balanced.
- 
+- **gls** Estimate the results using the GLS.
+- **npc(integer)**  Number of Principal Components of isomg GLS. Defaults to 100
 
 ### Data Input
 Data from both the event window and the pre-event window should be loaded into Stata when performing the estimation. Note that any conditional statement given by **[if]** applies *only* to the event date observations and not to any other observations.
