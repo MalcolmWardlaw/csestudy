@@ -63,4 +63,12 @@ The GLS estimation requires a strongly balanced panel in the pre-period in order
 Note that the command will accept dates either as integer values or an Stata function which can be evaluated upon execution. Trading dates are assumed to be contiguous, but when using dates created by the **bcal** option in Stata, the command can evaluate a bcal specified date such as `eventdate(bofd("mycal",mdy(9,19,2011)))`
 
 ## Example
-...
+```stata
+bcal create trading, from(date) gen(trading_date) center(20081006) replace
+tsset permno trading_date
+
+csestudy ret btm me, eventdate(0)
+
+csestudy ret btm me, start(-210) end(-11) eventdate(0)
+```
+
