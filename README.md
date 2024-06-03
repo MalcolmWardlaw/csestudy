@@ -9,7 +9,7 @@ Feedback is both welcome and encouraged, so please feel free to open an issue if
 
 ## Basic Description
 
-As described in Cohn, Johnson, Liu, and Wardlaw (2023), testing the cross-sectional valuation effects of a specific event for firms with different characteristics is somewhat complicated. Standard event study methodologies usually fail to account for the strong cross-correlation structure in stock returns across a host of characteristics, and the standard approach of clustering the standard errors by industry is completely unable to account for this problem.
+As described in Cohn, Johnson, Liu, and Wardlaw (2024), testing the cross-sectional valuation effects of a specific event for firms with different characteristics is somewhat complicated. Standard event study methodologies usually fail to account for the strong cross-correlation structure in stock returns across a host of characteristics, and the standard approach of clustering the standard errors by industry is completely unable to account for this problem.
 
 The paper proposes an approach which leverage the time-series of past returns to account for the implied correlation structure:
 
@@ -28,7 +28,7 @@ csestudy depvar indepvars [if], EVENTdate
   EVENTENDdate(string)   ///
   NPREeventdays(integer) ///
   STARTpreeventdate(string) ENDpreeventdate(string) ///
-  noBALance gls npc(integer 100) PRESAMPLEmarker(name) ///
+  gls npc(integer 100) PRESAMPLEmarker(name) ///
   newvar(name) PRECALCulated
   ] 
 ```
@@ -52,7 +52,7 @@ Additional Options:
 - **npc(integer)**  Number of Principal Components of isomg GLS. Defaults to 100
 
 ### Data Input
-Data from both the event window and the pre-event window should be loaded into Stata when performing the estimation. Note that any conditional statement given by **[if]** applies *only* to the event date observations and not to any other observations.
+Data from both the event window and the pre-event window should be loaded into Stata when performing the estimation. Note that the conditional statement given by **[if]** applies to the event date and pre-event-date observations, but not to the y variables in used for calculating the PCA matrix if the gls option is specified.
 
 
 ### Balancing the pre-period data
