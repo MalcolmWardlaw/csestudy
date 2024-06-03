@@ -126,11 +126,6 @@ program define csestudy, eclass
     }
 
 
-    if !mi("`balance'") & !mi("`gls'") {
-        di as error "GLS requires a balanced panel and does not allow nobalance."
-        exit
-    }
-
     // This error check might be logically redundant
     if `startpreeventdate'  >= `endpreeventdate' {
         di as error "Pre-event start date must come before end date."
@@ -184,14 +179,21 @@ program define csestudy, eclass
     }
     qui gen byte `event' = `timevar' == `eventdate'
 
-    marksample touse
-    qui replace `touse' = 0 if !`event'
-    
-    local varlist_delim : subinstr local varlist " " ",", all 
-    tempvar touse_pre_event
-    qui gen byte `touse_pre_event' = inrange(`timevar',`startpreeventdate' , `endpreeventdate') ///
-        & !mi(`varlist_delim')
+    marksample touse_all
+    qui replace `touse_all' = 0 if !(inrange(`timevar',`startpreeventdate' , `endpreeventdate')|`timevar'==`eventdate')
 
+    local varlist_delim : subinstr local varlist " " ",", all 
+    tempvar touse_pre_event touse full_sample_marker
+
+    qui gen byte `full_sample_marker' = (inrange(`timevar',`startpreeventdate' , `endpreeventdate')| ///
+        `timevar'==`eventdate') & !mi(`varlist_delim')
+    
+    // Add pre-pre-period to gls sample
+    if "`gls'" == "gls" {
+        qui replace `full_sample_marker' = 1 if inrange(`timevar', `startpreeventdate'- `npreeventdays' , `endpreeventdate') & !mi(`varlist_delim')
+    }
+    qui gen byte `touse' = 0
+    qui gen byte `touse_pre_event' = 0
 
     if "`sortvar1' `sortvar2'" != "`panelvar' `timevar'" {
         display "NOTE: Your data is not xt sorted. Sorting now..."
@@ -227,45 +229,6 @@ program define csestudy, eclass
     }
 
 
-    // Try to balance the panel by excluding all panel ids which do not have
-    // the maximum number of observed days
-    if mi("`balance'") {
-        time_section, label(Balancing Routine) `timeit'
-
-        // Get maximum number of total trading dates for all stocks
-        tempvar tcount
-        qui by `panelvar' (`timevar'): gen long `tcount' /// 
-            = sum(`touse'|`touse_pre_event') if `touse'|`touse_pre_event'
-        // Copy non-empty count to the bottom of each panelvar
-        qui by `panelvar' (`timevar'): replace `tcount' = `tcount'[_n - 1] /// 
-            if mi(`tcount') ///
-            | (!mi(`tcount'[_n - 1]) & `tcount'[_n - 1] > `tcount')        
-        // Generate totaldays as last value of tcount, which has been copied to the bottom
-        tempvar totaldays
-        qui by `panelvar' (`timevar'): gen long `totaldays' = `tcount'[_N] if `touse'|`touse_pre_event'
-        
-        // NOTE TO AUTHOR: Consider that requiring sequential dates makes balancing on 
-        // totaldays == npreeventdays + 1 guarantee that the panel is balanced
-        // Zero out the pre-events and post-events insample indicators where there are not the max obs
-        qui replace `touse' = 0 if `totaldays' != `npreeventdays' + 1
-        qui replace `touse_pre_event' = 0 if `totaldays' != `npreeventdays' + 1
-    }
-
-    // Even if the data is not balanced, the command should still throw away all pre-period observations
-    // that are screened out by -if- in the event period.
-    else {
-        tempvar tcount
-        qui by `panelvar' (`timevar'): gen long `tcount' = `touse'
-        // Copy non-empty count to the bottom of each panelvar
-        qui by `panelvar' (`timevar'): replace `tcount' = `tcount'[_n - 1] if !mi(`tcount'[_n-1]) & `tcount'==0
-
-        // Zero out touse_pre_event if last value of tcount is 0
-        qui by `panelvar' (`timevar'): replace `touse_pre_event' = 0 if `tcount'[_N] == 0
-    }
-
-    qui count if `touse'
-    local nobs = r(N)
-
 
     ****************************************************************************
     *                                 Run Test                                 *
@@ -273,13 +236,13 @@ program define csestudy, eclass
 
     
     * Check that the number of pca components is less than the number of observations
-    capture assert `nobs' > `npc'
-    if _rc {
-        di as error "After balancing pre-period, you have more pca components than test observations."
-        exit
-    }
+    // capture assert `nobs' > `npc'
+    // if _rc {
+    //     di as error "After balancing pre-period, you have more pca components than test observations."
+    //     exit
+    // }
 
-    tempname b V ts_z pcdf ndates betas
+    tempname b V ts_z pcdf betas
     
 
     time_section, label(Mata Code) `timeit'
@@ -287,7 +250,9 @@ program define csestudy, eclass
 
     // NOTE TO AUTHOR: `V' is now vestigal and doesn't need to be specified
     // fix later.
-    mata _tsregress("`varlist'", "`timevar'", "`panelvar'" , "`gls'", "`balance'" , "`touse_pre_event'", "`touse'", `npc', "`b'" , "`V'", "`pcdf'", "`ts_z'", "`betas'")
+    tempvar constant
+    qui gen byte `constant' = 1
+    mata _tsregress("`varlist' `constant'", "`timevar'", "`panelvar'" , "`gls'", "`touse_pre_event'", "`touse'", "`touse_all'", "`full_sample_marker'", `npc', "`b'" , "`V'", "`pcdf'", "`ts_z'", "`betas'", `eventdate', `startpreeventdate', `endpreeventdate')
 
     * local rhsvars w_ltdd w_me w_btm
     matrix rownames `b' = y1
@@ -302,6 +267,8 @@ program define csestudy, eclass
     matrix rownames `betas' = y1
     matrix colnames `betas' = `rhsvars' :_cons
 
+    qui count if `touse'
+    local nobs = r(N)
  
     time_section, label(Post results to e) `timeit'
   
@@ -312,10 +279,10 @@ program define csestudy, eclass
         di as text "OLS Estimates with Time Series Corrected Errors"
     }
     di _col(36) as text "Number of obs  = " as result %9.0fc `nobs'
-    di _col(24) as text "Number of pre-period dates = " as result %9.0fc `ndates'
+    di _col(24) as text "Number of pre-period dates = " as result %9.0fc `npreeventdays'
 
     di as text "{hline 13}{c TT}{hline 47}"
-    di as text %12s abbrev("`lhsvar'",12)  " {c |}  Coefficient" _col(29) %~12s  "CDF p-val" _col(41)  %~12s  "TS Z-Score" 
+    di as text %12s abbrev("`lhsvar'",12)  " {c |}  Coefficient" _col(29) %~12s  "CDF p-val" _col(41)  %~12s  "Parametric p-val" 
     di as text "{hline 13}{c +}{hline 40}"
     foreach colnm in `rhsvars' _cons {
         di as text %12s abbrev("`colnm'",12) " {c |}"  ///
@@ -329,7 +296,7 @@ program define csestudy, eclass
     ereturn local  cmd  "csestudy"
     ereturn local  cmdline  "`cmdline'"
     ereturn scalar N = `nobs'
-    ereturn scalar n_pe_dates = `ndates'
+    ereturn scalar n_pe_dates = `npreeventdays'
     ereturn matrix z = `ts_z'
     ereturn matrix p = `pcdf'
     ereturn matrix betas = `betas'
@@ -349,171 +316,196 @@ program define csestudy, eclass
     time_section, list `timeit'
 end
 
+capture mata mata drop CholOmega()
+mata:
+    real matrix CholOmega(real matrix ystackT, real scalar npc) {
+        real matrix A, U, Vt, pca_coeff, pca_score
+        real matrix sig2_e, Omega
+        real vector s
+        A = ystackT :- mean(ystackT)
+        
+        fullsvd(A,U,s,Vt)
+
+        pca_coeff = Vt'[,1..npc]
+        pca_score = A*pca_coeff
+        sig2_e = variance(A - pca_score*pca_coeff')
+        // Omega should be symmetric, but Mata doesn't recognize that it is
+        // so we coerce it to be symmetric 
+        Omega =  makesymmetric(pca_coeff * diag(variance(pca_score)) * // 
+            pca_coeff' + diag(sig2_e))
+
+        return (cholesky(Omega))
+    }
+end
+
+capture mata mata drop get_balance_y()
+mata:
+    real matrix get_balance_y(real scalar pe_date, /// 
+        real scalar pe_window_n, real scalar event_pe_n, ///
+        real scalar usecol, real matrix E) {
+        real vector dsel, sel
+        dsel = selectindex(E[.,usecol] :& E[.,2]:==pe_date)
+        sel = J((event_pe_n)*rows(dsel),1,.)
+        for (i = 1; i<=rows(dsel); i++) {
+            last_obs = dsel[i]
+            for (j = 1 ; j<= event_pe_n; j++) {
+                k = (event_pe_n * (i-1)) + j
+                sel[k] = last_obs - (pe_window_n) + j
+            }
+        }
+        return(colshape(E[sel,6],event_pe_n))
+    }
+end
+
+
+capture mata mata drop endobs()
+mata:
+    scalar endobs(vector id, scalar i) {
+                scalar   j
+                for (j=i+1; j<=rows(id); j++) {
+                        if (id[j]!=id[i]) return(j-1)
+                }
+                return(rows(id))
+        }
+end
 
 
 
 capture mata mata drop _tsregress()
 mata:
     void _tsregress(string scalar regvars, string scalar timevar, ///
-        string scalar panelvar, string scalar gls, string scalar nobalance, ///
-        string scalar pre_event_sample, string scalar event_sample, ///
-        real scalar npc, ///
+        string scalar panelvar, string scalar gls, ///
+        string scalar touse_pre_event, string scalar touse, ///
+        string scalar touse_all, string scalar full_sample_marker, real scalar npc, ///
         string scalar bmat, string scalar Vmat, string scalar pcdf, ///
-        string scalar ts_zmat, string scalar betas) {
+        string scalar ts_zmat, string scalar betas, ///
+        real scalar event_date, real scalar pe_start_date, real scalar pe_end_date) {
 
         // Convert variable names to column indices
         real rowvector regcols
-        real scalar time_column, startobs, nrows, ncols
+        real scalar time_column, startobs, nrows, ncols, pe_pe_start_date, pe_window_n, event_pe_n
 
-        regcols          = st_varindex(tokens(regvars))
-        time_column      = st_varindex(timevar)
-        panel_column     = st_varindex(panelvar)
-        event_sample_col = st_varindex(event_sample)
-        pre_event_sample_col = st_varindex(pre_event_sample)
+        regcols             = st_varindex(tokens(regvars))
+        time_column         = st_varindex(timevar)
+        panel_column        = st_varindex(panelvar)
+        touse_col           = st_varindex(touse)
+        touse_pre_event_col = st_varindex(touse_pre_event)
+        all_conditional_col = st_varindex(touse_all)
+        all_nonmissing_col  = st_varindex(full_sample_marker)
+        pe_pe_start_date = pe_start_date - (event_date - pe_start_date)
+        pe_window_n = event_date - pe_start_date + 1
+        event_pe_n = pe_end_date - pe_start_date + 1
 
+        
 
         // Preallocate regression objects
-        real matrix residuals, XX, Xy, M, E, y, X, Xstack, ystack
-        real scalar obs
-        real vector beta, pre_event_dates, event_beta 
-        // Setup Matrices for pre and post period
-        st_view(E, . , (time_column,panel_column,regcols), event_sample_col)
-        // M needs to be sorted, and partial sorting of the data may be required,
-        // so M is data not a view
-        M = st_data(. , (time_column,panel_column,regcols), pre_event_sample_col)
-        M = sort(M,(1,2))
+        real matrix XX, Xy, M, E, y, X, ystack
+        real vector beta, pre_event_dates, event_beta, id 
+        real scalar j
+        // Setup Main View
 
-        pre_event_dates = uniqrows(M[.,1])
-        firms = rows(uniqrows(M[.,2]))
-        ndates = rows(pre_event_dates)
-        pre_event_beta = J(ndates, 1 + cols(regcols), .)
-        residuals = J(ndates, firms, .)
-     
-        // Allocate stacked X and y variables for fast GLS estimation
+        st_view(E, . , (panel_column,time_column,touse_col, touse_pre_event_col, all_conditional_col,regcols), all_nonmissing_col)
+
+        nregressors = cols(regcols) - 1
+        ycol = 6
+        Xcols = 7..7+nregressors-1
+        beta_mat = J(event_pe_n+1,cols(Xcols),.)
+        
+
+        
         if (gls == "gls") {
-            Xstack = J(firms,ndates*cols(regcols),.)
-            ystack = J(firms,ndates,.)
+            // Mark data in pre_event_sample which has a balanced
+            //  pre-pre-event sample
+
+            st_subview(id, E, ., 1)
+            j = 1
+            for (i=1; i<=rows(id); i=j+1) {
+                    j = endobs(id, i)
+                    st_subview(X, E, (i,j), (2\5))
+                    // Mark Event-Date as Balanced or Not
+                    if (X[rows(X),1] == event_date ) {
+                        X[rows(X),2] = ((X[rows(X),1] - X[max((rows(X)-event_pe_n,1)),1])==pe_window_n - 1) * X[rows(X),4]
+                        offset = 1
+                    }
+                    else {
+                        offset = 0
+                    }
+                    // Mark Pre-Event Dates as Balanced or Not
+                    for (k=rows(X)-offset; k>=pe_window_n + 1 - offset; k--) {
+                        X[k,3] = ((X[k,1] - X[k-pe_window_n + 1,1])==pe_window_n - 1) * X[k,4]
+                    }
+            }
+        }
+        else {
+            E[.,3] = E[.,2]:==event_date :* E[.,5]
+            E[.,4] = (E[.,2]:>=pe_start_date :& E[.,2]:<=pe_end_date ) :* E[.,5]
         }
 
 
-        //calculate pre-event betas
-        startobs = 1
-        i = 1
-        last_obs_flag = 0
-        nrows = rows(M)
-        ncols = cols(M)
-
-        // Loop through to calculate OLS betas and, if GLS is specified, residuals.
-        for (obs=1; obs <= nrows; obs++) {
-
-            if (obs == nrows) last_obs_flag = 1
-            else if (M[obs,1] != M[obs+1,1]) last_obs_flag = 1
-            
-            if (last_obs_flag) {
-                    y = M[startobs..obs, 3]
-                    X = M[startobs..obs, 4..ncols] , J(obs - startobs + 1,1,1)
-                    XX = quadcross(X,X)
-                    Xy = quadcross(X,y)
-                    // ------------ COMPUTE COEFFICIENTS --------------------
-                    beta    = cholsolve(XX,Xy)
-                    // ------------ STORE OUTPUT ----------------------------
-                    curdate = M[obs,1]
-                    pre_event_beta[i,.] = curdate, beta'
-   
-                    if (gls == "gls") {
-                        // If GLS option is invoked, store residuals for PCA estimation
-                        residuals[i,.] = (y-X*beta)'
-                        // Stack X and y variables into matrices
-                        // Note: this requires a balanced panel as per the GLS option
-                        Xstack[.,1+cols(regcols)*(i-1)..cols(regcols)*i] = X
-                        ystack[.,i] = y
-
-                    }  
-
-                    startobs = obs + 1 
-                    last_obs_flag = 0
-                    i = i + 1
-            }
-        } 
-
-
-        if (gls == "gls") {    
-            
-            //Allocate PCA objects
-            real matrix U, Vt, pca_coeff, pca_score
-            real matrix sig2_e, Omega, L
-            real vector s
-            A = residuals :- mean(residuals)
-            
-            fullsvd(A,U,s,Vt)
-
-            pca_coeff = Vt'[,1..npc]
-            pca_score = A*pca_coeff
-            sig2_e = variance(A - pca_score*pca_coeff')
-            // Omega should be symmetric, but Mata doesn't recognize that it is
-            // so we coerce it to be symmetric 
-            Omega =  makesymmetric(pca_coeff * diag(variance(pca_score)) * // 
-                pca_coeff' + diag(sig2_e))
-            
-            L = cholesky(Omega)
-            
-
-            // Solve for LX and Ly using cholesky decomposition
-            Xstack = solvelower_wrapper(L,Xstack)
-            ystack = solvelower_wrapper(L,ystack)
-            
-
-            // Loop though the stacked X and y tilde to get the time series GLS betas
-
-            
-            for (i = 1; i<=cols(ystack); i++) {
-                X = Xstack[.,1+cols(regcols)*(i-1)..cols(regcols)*i]
-                y = ystack[.,i]
-                XX = quadcross(X,X)
-                Xy = quadcross(X,y)
-                beta = cholsolve(XX,Xy)
-                pre_event_beta[i,2..cols(regcols)+1] = beta'
-            }
-        }
-
-        st_subview(y, E, ., 3)
-        st_subview(X, E, ., 4\.)
-        X = X,J(rows(X),1,1)
+        // Calculate Event Window Betas
+        st_select(M, E, E[.,3])
+        st_subview(y,M,.,ycol)
+        st_subview(X,M,.,Xcols)
 
         if (gls == "gls") {
-            X = solvelower_wrapper(L,X)
+            ystack = get_balance_y(event_date, pe_window_n, event_pe_n, 3, E)
+            L = CholOmega(ystack', npc)
             y = solvelower_wrapper(L,y)
+            X = solvelower_wrapper(L,X)
         }
         XX = quadcross(X,X)
         Xy = quadcross(X,y)
-        event_beta = E[1,1],cholsolve(XX,Xy)'
+        beta = cholsolve(XX,Xy)
+        beta_mat[event_pe_n+1,.] = beta'
+
+        // Loop through all pre-event windows
+        F = select(E,  E[.,4])
+        timer_clear()
+        for (i = pe_start_date; i<=pe_end_date; i++) {
+            timer_on(1)
+            j = i -pe_start_date +1
+            st_select(M, F, (F[.,2]:== i))
+            st_subview(y,M,.,ycol)
+            st_subview(X,M,.,Xcols)
+            if (gls == "gls") {
+                ystack = get_balance_y(i, pe_window_n, event_pe_n, 4, E)
+                L = CholOmega(ystack', npc)
+                y = solvelower_wrapper(L,y)
+                X = solvelower_wrapper(L,X)
+                if (mod(j,10) == 0) {
+                printf("Finished %f pre-event calculations\n", j)
+                }
+            }
+
+            XX = quadcross(X,X)
+            Xy = quadcross(X,y)
+            beta = cholsolve(XX,Xy)
+            beta_mat[j,.] = beta'
+        }
 
 
         // -----------------------------------------------------------------------------
         // Gather output and test
         // -----------------------------------------------------------------------------
         // Generate percentiles under empirical CDF
-        coef_cols = 2..cols(pre_event_beta)
-        mean_coefs = mean(pre_event_beta[.,coef_cols])
-        event_pctile = colsum(abs(pre_event_beta[.,coef_cols]:-mean_coefs):> abs(event_beta[coef_cols]-mean_coefs)):/rows(pre_event_beta)
-        
-        // If percentile is 1 or 0, adjust by half the rank of N
-        event_pctile = (event_pctile :== 0) * 1/(rows(pre_event_beta)*2) + ///
-            (event_pctile :== 1) * (1- 1/(rows(pre_event_beta)*2)) + ///
-            (event_pctile :!= 1 :& event_pctile :!= 0):* event_pctile
 
-        // Generate TS empirical z-score
-        X = (1\J(rows(pre_event_dates),1,0)),J(rows(pre_event_dates)+1,1,1)
-        y = event_beta[.,coef_cols]\pre_event_beta[.,coef_cols]
+        event_coefs = beta_mat[rows(beta_mat),.]        
+        pre_event_coefs = beta_mat[1..rows(beta_mat)-1,.]
+        mean_coefs = mean(pre_event_coefs)
+        
+        event_pctile = (colsum(abs(pre_event_coefs:-mean_coefs):> abs(event_coefs:-mean_coefs)):+1):/rows(pre_event_coefs)
+        
+        // Generate TS empirical z-score        
+        X = (J(event_pe_n,1,0)\1),J(event_pe_n+1,1,1)
+        y = beta_mat
         ts_beta = cholsolve(quadcross(X,X), quadcross(X,y))[1,.]
-        sd = (sqrt(diagonal(quadvariance(pre_event_beta[.,coef_cols])) * ///
-            (rows(pre_event_beta)+1) / rows(pre_event_beta)))'
-        ts_z = ts_beta :/ sd
-        st_matrix(bmat, event_beta[.,coef_cols])
+        sd = sqrt(diagonal(quadvariance(pre_event_coefs)))'
+        ts_z =  abs(event_coefs - mean_coefs):/ (sd :* sqrt((rows(pre_event_coefs)-1)/(rows(pre_event_coefs)-2)))
+        ts_z = 2:*ttail(rows(pre_event_coefs)-2, ts_z)
+        st_matrix(bmat, beta_mat[event_pe_n+1,.])
         st_matrix(pcdf, event_pctile)
         st_matrix(ts_zmat, ts_z)
-        st_matrix(betas, pre_event_beta[.,coef_cols])
-        st_local("ndates", strofreal(ndates))
+        st_matrix(betas, beta_mat[1..event_pe_n,.])
     }
 end
 
@@ -529,8 +521,6 @@ else {
     capture mata mata drop solvelower_wrapper()
     mata numeric matrix solvelower_wrapper(numeric matrix A, numeric matrix B) return (solvelower(A,B))
 }
-
-
 
 
 
