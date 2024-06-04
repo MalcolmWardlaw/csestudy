@@ -75,10 +75,10 @@ program define csestudy, eclass
     *        THIS IS A VERY COMPLEX SWITCH AND MAY NEED TO BE REFACTORED       *
     ****************************************************************************
 
-    // Make NPREeventdays = 200 the default if both it and ENDpreeventdate are missing
+    // Make NPREeventdays = 199 the default if both it and ENDpreeventdate are missing
     // Note: npreeventdays defaults to -99 so it can be optional
     if `npreeventdays' == -99 & mi("`startpreeventdate'") {
-        local npreeventdays = 200
+        local npreeventdays = 199
         local startpreeventdate = `endpreeventdate' - `npreeventdays' + 1
     }
     // If npreeventdays is missing and endpreeventdate is specified,
@@ -118,11 +118,11 @@ program define csestudy, eclass
 
     // Notify users who use the if option that it only applies
     // to event window observations
-    if !mi("`if'") {
-        di _n as text "NOTE: the -if- expression only applies to observations in the event window."
-        di    as text "The pre-event window will exclude any panel ids excluded by -if- in the "
-        di    as text "event window, but if you wish to exclude other pre-event window observations"
-        di    as text "based on certain criteria, you must do so manually." _n
+    if !mi("`if'", "`gls'") {
+        di _n as text "NOTE: the -if- expression only applies to observations "
+        di    as text "in the test windows and not to the y variables in the PCA " 
+        di    as text "matrix. If you wish to exclude observations from the PCA "
+        di    as text "matrix based on certain criteria, you must do so manually." _n
     }
 
 
@@ -493,15 +493,15 @@ mata:
         pre_event_coefs = beta_mat[1..rows(beta_mat)-1,.]
         mean_coefs = mean(pre_event_coefs)
         
-        event_pctile = (colsum(abs(pre_event_coefs:-mean_coefs):> abs(event_coefs:-mean_coefs)):+1):/rows(pre_event_coefs)
+        event_pctile = (colsum(abs(beta_mat:-mean_coefs):>= abs(event_coefs:-mean_coefs))):/(rows(beta_mat))
         
         // Generate TS empirical z-score        
         X = (J(event_pe_n,1,0)\1),J(event_pe_n+1,1,1)
         y = beta_mat
         ts_beta = cholsolve(quadcross(X,X), quadcross(X,y))[1,.]
         sd = sqrt(diagonal(quadvariance(pre_event_coefs)))'
-        ts_z =  abs(event_coefs - mean_coefs):/ (sd :* sqrt((rows(pre_event_coefs)-1)/(rows(pre_event_coefs)-2)))
-        ts_z = 2:*ttail(rows(pre_event_coefs)-2, ts_z)
+        ts_z =  abs(event_coefs - mean_coefs):/ (sd :* sqrt((rows(beta_mat))/(rows(beta_mat)-1)))
+        ts_z = 2:*ttail(rows(beta_mat)-2, ts_z)
         st_matrix(bmat, beta_mat[event_pe_n+1,.])
         st_matrix(pcdf, event_pctile)
         st_matrix(ts_zmat, ts_z)
