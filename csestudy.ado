@@ -190,7 +190,7 @@ program define csestudy, eclass
     
     // Add pre-pre-period to gls sample
     if "`gls'" == "gls" {
-        qui replace `full_sample_marker' = 1 if inrange(`timevar', `startpreeventdate'- `npreeventdays' , `endpreeventdate') & !mi(`varlist_delim')
+        qui replace `full_sample_marker' = 1 if inrange(`timevar', `startpreeventdate'- `npreeventdays'-`event_window_length' , `endpreeventdate') & !mi(`varlist_delim')
     }
     qui gen byte `touse' = 0
     qui gen byte `touse_pre_event' = 0
