@@ -1,5 +1,5 @@
 # CSESTUDY: Efficient Inference for Cross-Sectional Event Studies
-This is the public repository for the Stata command **csestudy** as described in Cohn, Johnson, Liu, and Wardlaw (2023) "Past is Prologue: Inference from the Cross Section of Returns Around an Event".
+This is the public repository for the Stata command **csestudy** as described in Cohn, Johnson, Liu, and Wardlaw (2024) "Past is Prologue: Inference from the Cross Section of Returns Around an Event".
 
 https://ssrn.com/abstract=4296657
 
