@@ -23,33 +23,29 @@ The data must first be properly **tsset** by id and time. Further, for the defau
 The syntax is given as follows:
 
 ```stata
-csestudy depvar indepvars [if], EVENTdate
-  [
-  EVENTENDdate(string)   ///
-  NPREeventdays(integer) ///
-  STARTpreeventdate(string) ENDpreeventdate(string) ///
-  gls npc(integer 100) PRESAMPLEmarker(name) ///
-  newvar(name) PRECALCulated
-  ] 
+csestudy depvar [indepvars] [if] , eventdate(eventdate) [options]
 ```
+*Additional Options*
+
+```stata
+eventenddate(string)
+npreeventdays(integer)
+endpreeventdate(string)
+startpreeventdate(string)
+gls
+npc(integer)
+presamplemarker(newvar)
+newvar(varname)
+precalculated
+```
+
+
 The only _required_ option is:
 - **<ins>event</ins>date** This is the date of the event.
 
 If the event date is specified but no other options are specified, then the pre-event window is assumed to be 200 periods long, to begin 201 periods before the event, and end 1 period before the event.
 
-- If **<ins>npre</ins>eventdays(n)** is specified, it overrides the length of the pre-event window default to n
-- If **<ins>end</ins>preeventdate()** is specified, it specifies the last date of the pre-event period, with n total pre-event days
-- If **<ins>start</ins>preeventdate()** is specified, it overrides the the default number of event days in favor of the first date of the pre-event period. This option cannot be specified with NPREeventdays.
-
-- If **<ins>eventend</ins>date()** is specified, then the event is assumed to be a multi-day event and a cumulative rolling sum of **depvar** is calculated as the new dependent variable. Note that this feature is new and may still be somewhat buggy, so use with caution.
-- **newvar(name)** will store the value of the cumulative rolling sum of **depvar** as a new variable specified by **name**.
-- If **<ins>precalc</ins>ulated** is specified, the program will assume that the exsting value of **depvar** is already correctly pre-calculated according to the length of the event window and will proceed as if each window is reported on the first day.
- 
-Additional Options:
-- **<ins>presample</ins>marker(name)**  Create a variable **name** which marks the valid pre-event period observations which were used in the estimation.
-- **<ins>nobal</ins>ance** omits the initial balancing routine, which may slightly speed up the estimation if the user knows the sample is correctly balanced.
-- **gls** Estimate the results using the GLS.
-- **npc(integer)**  Number of Principal Components of isomg GLS. Defaults to 100
+If the event lasts more than one day, **<ins>eventend</ins>date** can be specified. The program will automaticall calculate a buy and hold return over the event period and for the entire pre-period. This is created in a temporary variable, but can be retained with the **newvar()** option to specify a new variable containing the pre-calculated multi-day returns
 
 ### Data Input
 Data from both the event window and the pre-event window should be loaded into Stata when performing the estimation. Note that the conditional statement given by **[if]** applies to the event date and pre-event-date observations, but not to the y variables in used for calculating the PCA matrix if the gls option is specified.
