@@ -117,10 +117,12 @@ program define csestudy, eclass
         // Mark subset of data which should be tested for valid inclusion
         gen byte `estimation_window' = inrange(`timevar',`all_data_start_date',`eventstartdate')
 
-
-
+        preserve
+        qui keep if `estimation_window'
+        // Loop through each pre-event date and run regression
         tempname pre_event_b pre_event_nobs
         forval noevent_date = `lastpreeventdate'(-1)`firstpreeventdate' {
+
             mata _set_touse("`touse_pre_event'", "`marked_all'", ///
                 "`timevar'", "`estimation_window'", `noevent_date')
 
@@ -149,6 +151,7 @@ program define csestudy, eclass
                 "`gls'", ///
                 "`pre_event_b'", ///
                 "`pre_event_nobs'" )
+
             local j =  `lastpreeventdate' - `noevent_date' + 2
             matrix `all_betas'[`j',1] = `pre_event_b'
             matrix `all_nobs'[`j',1] = `pre_event_nobs'
@@ -171,27 +174,29 @@ program define csestudy, eclass
         matrix rownames `ts_z' = y1
         matrix colnames `ts_z' = `rhsvars' :_cons
 
+        di _n
         if !mi("`gls'") {
             di as text "GLS Estimates with Time Series Corrected Errors"
         }
         else {
             di as text "OLS Estimates with Time Series Corrected Errors"
         }
+
         di _col(36) as text "Number of obs  = " as result %9.0fc `nobs'
         di _col(24) as text "Number of pre-period dates = " as result %9.0fc `n_pre_event_days'
 
         di as text "{hline 13}{c TT}{hline 47}"
         di as text %12s abbrev("`lhsvar'",12)  " {c |}  Coefficient" _col(29) %~12s  "CDF p-val" _col(41)  %~12s  "Parametric p-val" 
-        di as text "{hline 13}{c +}{hline 40}"
+        di as text "{hline 13}{c +}{hline 47}"
         foreach colnm in `rhsvars' _cons {
             di as text %12s abbrev("`colnm'",12) " {c |}"  ///
             _col(17) as result %9.0g `b'[1, colnumb(`b',"`colnm'") ]  ///
             _col(29) %9.3f `pcdf'[1, colnumb(`pcdf',"`colnm'") ]  ///
             _col(41) as result %9.3f `ts_z'[1, colnumb(`ts_z',"`colnm'") ] 
         }
-        di as text "{hline 13}{c BT}{hline 40}" _n
+        di as text "{hline 13}{c BT}{hline 47}" _n
     }
-
+    restore
 
     ereturn post `b' , depname("`lhsvar'") esample(`touse')
     ereturn scalar N = `nobs'
