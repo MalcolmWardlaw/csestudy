@@ -1,328 +1,322 @@
-*! version 1.2  21Ocotber2023
-* updated to new GLS routine - checks for missing preevent vars
-* GLS uses return residuals
-* correct CDF reporting 
-* Assume sequential date use, either setup via bcal or manually
+*! version 1.6  30July2025
+
 
 capture program drop csestudy
 program define csestudy, eclass
-    syntax varlist [if], EVENTdate(string) ///
-    [ EVENTENDdate(string)   ///
-    NPREeventdays(integer -99) STARTpreeventdate(string) ENDpreeventdate(string) ///
-    noBALance gls npc(integer 100) PRESAMPLEmarker(name) timeit ///
-    CUMRETurns(name) PRECALCulated newvar(name)]  
+    syntax varlist [if], EVENTstartdate(string) ///
+        FIRSTPREeventdate(string) LASTPREeventdate(string) ///
+        [gls npc(real 100) coefsonly]
 
 
-    _xt
+    _xt, trequired
     local panelvar = r(ivar) 
     local timevar = r(tvar)
-    // Get format of timevar if bcal is enabled
-    local datefmt : format `timevar'
-    if substr("`datefmt'",1,3) != "%tb" {
-        di _n "{hline 55}"
-        display as text "Date is not formatted using bcal. While not necessary,"
-        display as text "doing so is encouraged for ease of use and reporting."
-        display as text "Non-sequential calendar date conventions which do not "
-        display as text "account for weekends and holidays will produce errors."
-        display as text "See help file for more details."
-        di "{hline 55}" _n
 
-    }
+    // Evaluate eventstartdate, firstpreeventdate, and lastpreeventdate
+    local eventstartdate = `eventstartdate'
+    local firstpreeventdate = `firstpreeventdate'
+    local lastpreeventdate = `lastpreeventdate'
 
-
-    // Validate nonmissing date inputs which allow string equations
-    // like bofd("mycal",mdy(#,#,####))
-    foreach dateinput in eventdate startpreeventdate endpreeventdate ///
-        eventenddate {
-        * Evaluate input macro
-        if !mi("``dateinput''") {
-            capture local `dateinput' = ``dateinput''
-            capture confirm number ``dateinput''
-            if _rc != 0 {
-                di as error "Invalid value for `dateinput': ``dateinput''"
-                exit _rc
-            }
-        }
-    }
-
-    // If eventenddate is missing, assume = eventdate (a single day event)
-    if mi("`eventenddate'") {
-        local eventenddate = `eventdate'
-    }
-
-    local event_window_length = `eventenddate' - `eventdate' + 1
-    
-    capture assert  `event_window_length' > 0
-    if _rc != 0 {
-        di as error "Event end date is before event start date"
-        exit _rc
-    }
-
-    // If startpreeventdate is not specified, make it one event_window before eventdate
-    if mi("`endpreeventdate'") {
-        local endpreeventdate = `eventdate'  - `event_window_length'
-    }
-
-
-    
-    if `eventdate'  <= `endpreeventdate' {
-        di as error "Event Date come after pre-event end date."
-        exit
-    }
-
-
-    ****************************************************************************
-    *        THIS IS A VERY COMPLEX SWITCH AND MAY NEED TO BE REFACTORED       *
-    ****************************************************************************
-
-    // Make NPREeventdays = 199 the default if both it and ENDpreeventdate are missing
-    // Note: npreeventdays defaults to -99 so it can be optional
-    if `npreeventdays' == -99 & mi("`startpreeventdate'") {
-        local npreeventdays = 199
-        local startpreeventdate = `endpreeventdate' - `npreeventdays' + 1
-    }
-    // If npreeventdays is missing and endpreeventdate is specified,
-    // calculate number of days
-    else if `npreeventdays' == -99 & !mi("`startpreeventdate'") {
-        local npreeventdays = `endpreeventdate' - `startpreeventdate' + 1
-    }
-    // Declare an error if both options are specified
-    else if `npreeventdays' != -99 & !mi("`startpreeventdate'") {
-        di as error "Cannot specify both -npreeventdays- and -startpreeventdate-"
-        exit
-    }
-    else if `npreeventdays' >= 1  {
-        local startpreeventdate = `endpreeventdate' - `npreeventdays' + 1
-    }
-    else if `npreeventdays' < 1  {
-        di as error "-npreeventdays- must be positive."
-        exit
-    }
-    else {
-        di as error "Something has gone terribly wrong with this switch! FAIL!"
-        exit
-    }
-
-    qui sum `timevar', meanonly
-    local min_date = r(min)
-    if `min_date' > `startpreeventdate' {
-        di as error "Start of pre-event period is before earliest date in the data"
-        exit
-    }
-
-    if `npreeventdays' < `npc' {
-        di as error "Number of pre-event days must as least as many as the" 
-        di as error "number of principle components"
-        exit
-    } 
-
-    // Notify users who use the if option that it only applies
-    // to event window observations
-    if !mi("`if'", "`gls'") {
-        di _n as text "NOTE: the -if- expression only applies to observations "
-        di    as text "in the test windows and not to the y variables in the PCA " 
-        di    as text "matrix. If you wish to exclude observations from the PCA "
-        di    as text "matrix based on certain criteria, you must do so manually." _n
-    }
-
-
-    // This error check might be logically redundant
-    if `startpreeventdate'  >= `endpreeventdate' {
-        di as error "Pre-event start date must come before end date."
-        exit
-    }
-
+    local n_pre_event_days = `lastpreeventdate' - `firstpreeventdate' + 1
 
     local cmdline "csestudy `0'"
-
-    time_section, clear `timeit'
-    time_section, label(Setup) `timeit'
-
-    capture confirm variable `presamplemarker'
-    if _rc ==0 {
-        di as error "Pre-sample marker variable name (`presamplemarker') already exists."
-        exit
-    }
-
-
-
-    qui desc, short varlist
-    local sortlist = r(sortlist)
-    tokenize "`sortlist'"
-    local sortvar1 `1'
-    local sortvar2 `2'
-
-
-
-    di "{hline 50}"
-    di as text "Event Window Length:    " as result %-4.0f `event_window_length'
-    di as text "Event Window:           " as result `datefmt' `eventdate' " to " `datefmt'  `eventenddate'
-    di as text "# of pre-event periods: " as result %-4.0f `npreeventdays'
-    di as text "Pre-Event Window:       " as result `datefmt' `startpreeventdate' " to " `datefmt'  `endpreeventdate'
-    di as text "{hline 50}"
-
+    
     tokenize `varlist'
     local lhsvar `1'
     macro shift
     local rhsvars `*'
     scalar Dim = wordcount("`rhsvars' constant")
 
+    // Mark all valid event and pre-event observations and create touse
+    marksample touse
+    qui replace `touse' = 0 if `timevar' != `eventstartdate'
 
-    time_section, label(Panel Setup) `timeit'
-
-    * Create event variable to track event period
-    tempvar event
-    qui count if `timevar' == `eventdate'
-    if r(N) == 0 {
-        di as error "Event date does not occur in data. Check to make sure your format is correct."
-        exit
-    }
-    qui gen byte `event' = `timevar' == `eventdate'
-
-    marksample touse_all
-    qui replace `touse_all' = 0 if !(inrange(`timevar',`startpreeventdate' , `endpreeventdate')|`timevar'==`eventdate')
-
-    local varlist_delim : subinstr local varlist " " ",", all 
-    tempvar touse_pre_event touse full_sample_marker
-
-    qui gen byte `full_sample_marker' = (inrange(`timevar',`startpreeventdate' , `endpreeventdate')| ///
-        `timevar'==`eventdate') & !mi(`varlist_delim')
-    
-    // Add pre-pre-period to gls sample
+    // If GLS is specified, mark gls_window containing event and pre-period
     if "`gls'" == "gls" {
-        qui replace `full_sample_marker' = 1 if inrange(`timevar', `startpreeventdate'- `npreeventdays'-`event_window_length' , `endpreeventdate') & !mi(`varlist_delim')
+        tempvar gls_window
+        mark `gls_window' if !mi(`lhsvar') & ///
+            (inrange(`timevar', `firstpreeventdate', `lastpreeventdate') | ///
+            `timevar' == `eventstartdate')
     }
-    qui gen byte `touse' = 0
-    qui gen byte `touse_pre_event' = 0
-
-    if "`sortvar1' `sortvar2'" != "`panelvar' `timevar'" {
-        display "NOTE: Your data is not xt sorted. Sorting now..."
-        sort  `panelvar' `timevar' 
-    }
-
-    // If event window length is greater than 1 and the precalculated option has not been specified
-    // calculate the rolling window of returns
-    local reset_lhsvar = 0
-    if `event_window_length' > 1 & mi("`precalculated'") {
-        time_section, label(Calc multi-day window) `timeit'
-        local reset_lhsvar = 1
-
-        if mi("`newvar'") {
-            tempvar newvar
-        }
-
-
-        // Generate rolling lead window equation        
-        local ret_eq `lhsvar'
-        local j = `event_window_length' - 1
-        forval i = 1/`j' {
-            local ret_eq `ret_eq' + f`i'.`lhsvar'
-        }
-        
-        qui gen `newvar' = `ret_eq' if inrange(`timevar',  `startpreeventdate' , `endpreeventdate')  | `timevar' == `eventdate'  
-
-        // Preserve original lhsvar
-        tempvar temp_lhsvar
-        rename `lhsvar' `temp_lhsvar' 
-        
-        gen `lhsvar' = `newvar'        
-    }
-
 
 
     ****************************************************************************
     *                                 Run Test                                 *
     ****************************************************************************
 
-    
-    * Check that the number of pca components is less than the number of observations
-    // capture assert `nobs' > `npc'
-    // if _rc {
-    //     di as error "After balancing pre-period, you have more pca components than test observations."
-    //     exit
-    // }
 
-    tempname b V ts_z pcdf betas
-    
+    tempname b nobs
 
-    time_section, label(Mata Code) `timeit'
+    //pre-allocate matrices
+    local colnames `rhsvars' :_cons
+    local ncols: word count `colnames'
+    matrix `b' = J(1,`ncols',.)
 
+    // Get event period coefficients
+    mata _get_coefficients( ///
+        "`varlist'", ///
+        "`panelvar'", ///
+        "`timevar'", ///
+        "`touse'", ///
+        "`gls_window'", ///
+        `n_pre_event_days', ///
+        `npc', ///
+        "`gls'", ///
+        "`b'", ///
+        "`nobs'" )
 
-    // NOTE TO AUTHOR: `V' is now vestigal and doesn't need to be specified
-    // fix later.
-    tempvar constant
-    qui gen byte `constant' = 1
-    mata _tsregress("`varlist' `constant'", "`timevar'", "`panelvar'" , "`gls'", "`touse_pre_event'", "`touse'", "`touse_all'", "`full_sample_marker'", `npc', "`b'" , "`V'", "`pcdf'", "`ts_z'", "`betas'", `eventdate', `startpreeventdate', `endpreeventdate')
-
-    * local rhsvars w_ltdd w_me w_btm
+    // Label beta matrix
+    local colnames `rhsvars' :_cons
     matrix rownames `b' = y1
-    matrix colnames `b' = `rhsvars' :_cons
-
-    matrix rownames `pcdf' = y1
-    matrix colnames `pcdf' = `rhsvars' :_cons
-
-    matrix rownames `ts_z' = y1
-    matrix colnames `ts_z' = `rhsvars' :_cons
-
-    matrix rownames `betas' = y1
-    matrix colnames `betas' = `rhsvars' :_cons
-
-    qui count if `touse'
-    local nobs = r(N)
- 
-    time_section, label(Post results to e) `timeit'
+    matrix colnames `b' = `colnames'
   
-    if !mi("`gls'") {
-        di as text "GLS Estimates with Time Series Corrected Errors"
-    }
-    else {
-        di as text "OLS Estimates with Time Series Corrected Errors"
-    }
-    di _col(36) as text "Number of obs  = " as result %9.0fc `nobs'
-    di _col(24) as text "Number of pre-period dates = " as result %9.0fc `npreeventdays'
 
-    di as text "{hline 13}{c TT}{hline 47}"
-    di as text %12s abbrev("`lhsvar'",12)  " {c |}  Coefficient" _col(29) %~12s  "CDF p-val" _col(41)  %~12s  "Parametric p-val" 
-    di as text "{hline 13}{c +}{hline 40}"
-    foreach colnm in `rhsvars' _cons {
-        di as text %12s abbrev("`colnm'",12) " {c |}"  ///
-        _col(17) as result %9.0g `b'[1, colnumb(`b',"`colnm'") ]  ///
-        _col(29) %9.3f `pcdf'[1, colnumb(`pcdf',"`colnm'") ]  ///
-        _col(41) as result %9.3f `ts_z'[1, colnumb(`ts_z',"`colnm'") ] 
+    if mi("`coefsonly'") {
+        tempname all_betas all_nobs
+        // Allocate all_betas matrix and store 
+        // event period coefficient at start of matrix
+        matrix `all_betas' = J(`n_pre_event_days'+1,`ncols',.)    
+        local all_betas_colnames `eventstartdate'
+        forval i = `lastpreeventdate' (-1) `firstpreeventdate' {
+            local all_betas_colnames `all_betas_colnames' "`i'"
+        }
+        matrix colnames `all_betas' = `colnames'
+        matrix rownames `all_betas' = `all_betas_colnames'
+
+        matrix `all_betas'[1,1] = `b'
+
+        // Store event period number of obs at start of all_nobs
+        matrix `all_nobs' = J(`n_pre_event_days'+1,1,.)
+        matrix colnames `all_nobs' = "N"
+        matrix rownames `all_nobs' = `all_betas_colnames'
+
+        matrix `all_nobs'[1,1] = `nobs'
+
+        // Set reporting completion marker
+        local percent_complete_last = 0
+        di "Percent complete = 0% " _continue
+
+        // Create new touse_pre_event variable
+        // Create subsample that can be quickly marked if a large
+        // amount of data is retained in the Stata dataset
+        marksample marked_all
+        tempvar touse_pre_event estimation_window
+        gen byte `touse_pre_event' = 0
+        if "`gls'" == "gls" {
+            // GLS needs to test data back to n_pre_events prior
+            local all_data_start_date = `firstpreeventdate' - (`eventstartdate'-`firstpreeventdate')
+            // GLS also requires an ID vector to test whether !mi(lhsvar)
+            tempvar marked_y
+            gen byte `marked_y' = !mi(`lhsvar')
+
+        }
+        else {
+            local all_data_start_date = `firstpreeventdate'            
+        }
+
+        // Mark subset of data which should be tested for valid inclusion
+        gen byte `estimation_window' = inrange(`timevar',`all_data_start_date',`eventstartdate')
+
+
+
+        tempname pre_event_b pre_event_nobs
+        forval noevent_date = `lastpreeventdate'(-1)`firstpreeventdate' {
+            mata _set_touse("`touse_pre_event'", "`marked_all'", ///
+                "`timevar'", "`estimation_window'", `noevent_date')
+
+            if "`gls'" == "gls" {
+                local noevent_lastpreeventdate = `noevent_date' - (`eventstartdate' - `lastpreeventdate')
+                local noevent_firstpreeventdate = `noevent_date' - (`eventstartdate' - `firstpreeventdate')
+
+                mata _set_gls_window(`noevent_date', ///
+                    `noevent_lastpreeventdate', ///
+                    `noevent_firstpreeventdate', ///
+                    "`timevar'", ///
+                    "`gls_window'", ///
+                    "`marked_y'", ///
+                    "`estimation_window'"
+                )
+            }
+            
+            mata _get_coefficients( ///
+                "`varlist'", ///
+                "`panelvar'", ///
+                "`timevar'", ///
+                "`touse_pre_event'", ///
+                "`gls_window'", ///
+                `n_pre_event_days', ///
+                `npc', ///
+                "`gls'", ///
+                "`pre_event_b'", ///
+                "`pre_event_nobs'" )
+            local j =  `lastpreeventdate' - `noevent_date' + 2
+            matrix `all_betas'[`j',1] = `pre_event_b'
+            matrix `all_nobs'[`j',1] = `pre_event_nobs'
+
+            // Report percentage of gls regressions finished
+            local pe_regno =  `lastpreeventdate' - `noevent_date' + 1
+            local pe_total = `lastpreeventdate' - `firstpreeventdate' + 1
+            local percent_complete = `pe_regno'/`pe_total' * 100
+            if `percent_complete' - `percent_complete_last' >= 10 {
+                di "... " %-2.0f `percent_complete' "% " _continue
+                local percent_complete_last = `percent_complete'
+            }            
+        }
+
+        tempname pcdf ts_z
+        mata _get_significance_stats("`all_betas'", "`pcdf'", "`ts_z'")    
+        matrix rownames `pcdf' = y1 
+        matrix colnames `pcdf' = `rhsvars' :_cons
+
+        matrix rownames `ts_z' = y1
+        matrix colnames `ts_z' = `rhsvars' :_cons
+
+        if !mi("`gls'") {
+            di as text "GLS Estimates with Time Series Corrected Errors"
+        }
+        else {
+            di as text "OLS Estimates with Time Series Corrected Errors"
+        }
+        di _col(36) as text "Number of obs  = " as result %9.0fc `nobs'
+        di _col(24) as text "Number of pre-period dates = " as result %9.0fc `n_pre_event_days'
+
+        di as text "{hline 13}{c TT}{hline 47}"
+        di as text %12s abbrev("`lhsvar'",12)  " {c |}  Coefficient" _col(29) %~12s  "CDF p-val" _col(41)  %~12s  "Parametric p-val" 
+        di as text "{hline 13}{c +}{hline 40}"
+        foreach colnm in `rhsvars' _cons {
+            di as text %12s abbrev("`colnm'",12) " {c |}"  ///
+            _col(17) as result %9.0g `b'[1, colnumb(`b',"`colnm'") ]  ///
+            _col(29) %9.3f `pcdf'[1, colnumb(`pcdf',"`colnm'") ]  ///
+            _col(41) as result %9.3f `ts_z'[1, colnumb(`ts_z',"`colnm'") ] 
+        }
+        di as text "{hline 13}{c BT}{hline 40}" _n
     }
-    di as text "{hline 13}{c BT}{hline 40}" _n
+
 
     ereturn post `b' , depname("`lhsvar'") esample(`touse')
-    ereturn local  cmd  "csestudy"
-    ereturn local  cmdline  "`cmdline'"
     ereturn scalar N = `nobs'
-    ereturn scalar n_pe_dates = `npreeventdays'
-    ereturn matrix z = `ts_z'
-    ereturn matrix p = `pcdf'
-    ereturn matrix betas = `betas'
+    if mi("`coefsonly'") {
+        ereturn matrix betas = `all_betas'
+        ereturn matrix all_N = `all_nobs'
+        ereturn matrix pcdf = `pcdf'
+        ereturn matrix ts_z = `ts_z'
+    }    
 
-    if !mi("`presamplemarker'") {
-        qui gen byte `presamplemarker' = `touse_pre_event'
-        la var `presamplemarker' "Pre-Event Sample Used"
-    }
-
-    // Put back original left hand side variable if it was re-calculated for a longer window
-    if `reset_lhsvar' {
-        drop `lhsvar'
-        rename `temp_lhsvar' `lhsvar'
-    }
-
-    time_section, off `timeit'
-    time_section, list `timeit'
 end
+
+
+
+capture mata mata drop _get_coefficients()
+mata:
+    void _get_coefficients(string scalar regvar_names, ///
+        string scalar panelvar_name, ///
+        string scalar timevar_name, ///
+        string scalar touse_name, ///
+        string scalar gls_window_name, ///
+        real scalar pca_window_length, ///
+        real scalar num_principal_components, ///
+        string scalar gls_flag, ///
+        string scalar b_macro, ///
+        string scalar nobs_macro) {
+
+        real matrix AllData, EventData, gls_outputs, X
+        real colvector pre_event_y_rect, y_all, y, panelvar, touse, b
+        real scalar nobs
+
+        pragma unused timevar_name
+
+        if (gls_flag == "gls") {
+        // If GLS is enabled, balance the panel
+
+            pragma unset AllData
+            st_view(AllData, . , (panelvar_name, touse_name, tokens(regvar_names)[1]), gls_window_name)
+
+            pragma unset panelvar
+            st_subview(panelvar, AllData,.,1)
+
+            pragma unset touse
+            st_subview(touse, AllData,.,2)
+
+            pragma unset y_all
+            st_subview(y_all, AllData,.,3)
+
+            touse_pre_event = balance_y(panelvar,touse,pca_window_length)
+            pre_event_y_rect = (colshape(select(y_all,touse_pre_event), pca_window_length))'
+        }
+
+        pragma unset EventData
+        st_view(EventData,., (tokens(regvar_names)), touse_name)
+
+        pragma unset y
+        st_subview(y, EventData,.,1)
+
+        pragma unset X
+        st_subview(X, EventData,.,(2\.))
+        X = X, J(rows(y), 1, 1)
+
+        if (gls_flag == "gls") {
+            gls_outputs = gls_mat(y, X, pre_event_y_rect, num_principal_components)
+            y = gls_outputs[.,1]
+            X = gls_outputs[., (2..cols(gls_outputs))]
+        }
+
+        b = beta_coefficients(y, X)
+        nobs = rows(y)
+
+        // Post the coefficients
+        st_matrix(b_macro, b')
+        st_numscalar(nobs_macro, nobs)
+    }     
+end
+
+capture mata mata drop _get_significance_stats()
+mata:
+    void _get_significance_stats(string scalar betas_mat, ///
+        string scalar pcdf_mat, ///
+        string scalar ts_zmat) {
+
+
+        betas = st_matrix(betas_mat)
+        event_coefs = betas[1,.]        
+        pre_event_coefs = betas[2..rows(betas),.]
+        sd = sqrt(diagonal(quadvariance(pre_event_coefs)))'
+        mean_coefs = mean(pre_event_coefs)
+    
+        event_pctile = (colsum(abs(betas:-mean_coefs):>= abs(event_coefs:-mean_coefs))):/(rows(betas))
+
+
+        ts_z =  abs(event_coefs - mean_coefs):/ (sd :* sqrt((rows(betas))/(rows(betas)-1)))
+        ts_z = 2:*ttail(rows(betas)-2, ts_z)
+
+        st_matrix(ts_zmat, ts_z)
+        st_matrix(pcdf_mat, event_pctile)
+    }
+end
+
+
+
+capture mata mata drop beta_coefficients()
+mata:
+    real colvector beta_coefficients(real colvector y, real matrix X) {
+        // allocate matrices
+        real matrix XX, Xy
+        real colvector beta
+
+        XX = quadcross(X,X)
+        Xy = quadcross(X,y)
+        beta = cholsolve(XX,Xy)
+        return(beta)
+    }
+end
+
 
 capture mata mata drop CholOmega()
 mata:
-    real matrix CholOmega(real matrix ystackT, real scalar npc) {
+    real matrix CholOmega(real matrix pre_event_y_rect, real scalar npc) {
         real matrix A, U, Vt, pca_coeff, pca_score
         real matrix sig2_e, Omega
         real vector s
-        A = ystackT :- mean(ystackT)
+        A = pre_event_y_rect :- mean(pre_event_y_rect)
         
         fullsvd(A,U,s,Vt)
 
@@ -338,180 +332,119 @@ mata:
     }
 end
 
-capture mata mata drop get_balance_y()
+
+
+capture mata mata drop _set_touse()
 mata:
-    real matrix get_balance_y(real scalar pe_date, /// 
-        real scalar pe_window_n, real scalar event_pe_n, ///
-        real scalar usecol, real matrix E) {
-        real vector dsel, sel
-        dsel = selectindex(E[.,usecol] :& E[.,2]:==pe_date)
-        sel = J((event_pe_n)*rows(dsel),1,.)
-        for (i = 1; i<=rows(dsel); i++) {
-            last_obs = dsel[i]
-            for (j = 1 ; j<= event_pe_n; j++) {
-                k = (event_pe_n * (i-1)) + j
-                sel[k] = last_obs - (pe_window_n) + j
-            }
-        }
-        return(colshape(E[sel,6],event_pe_n))
+    void _set_touse(string scalar touse_name, ///
+        string scalar marked_all_name, ///
+        string scalar timevar_name, ///
+        string scalar estimation_window_name, ///
+        real scalar eventstartdate) {
+        
+        real matrix AllData
+
+        st_view(AllData=., . , (touse_name, marked_all_name, timevar_name), ///
+        estimation_window_name)
+        AllData[.,1] = AllData[.,2] :* (AllData[.,3]:==eventstartdate)
     }
 end
 
 
-capture mata mata drop endobs()
+capture mata mata drop _set_gls_window()
 mata:
-    scalar endobs(vector id, scalar i) {
-                scalar   j
-                for (j=i+1; j<=rows(id); j++) {
-                        if (id[j]!=id[i]) return(j-1)
-                }
-                return(rows(id))
-        }
-end
-
-
-
-capture mata mata drop _tsregress()
-mata:
-    void _tsregress(string scalar regvars, string scalar timevar, ///
-        string scalar panelvar, string scalar gls, ///
-        string scalar touse_pre_event, string scalar touse, ///
-        string scalar touse_all, string scalar full_sample_marker, real scalar npc, ///
-        string scalar bmat, string scalar Vmat, string scalar pcdf, ///
-        string scalar ts_zmat, string scalar betas, ///
-        real scalar event_date, real scalar pe_start_date, real scalar pe_end_date) {
-
-        // Convert variable names to column indices
-        real rowvector regcols
-        real scalar time_column, startobs, nrows, ncols, pe_pe_start_date, pe_window_n, event_pe_n
-
-        regcols             = st_varindex(tokens(regvars))
-        time_column         = st_varindex(timevar)
-        panel_column        = st_varindex(panelvar)
-        touse_col           = st_varindex(touse)
-        touse_pre_event_col = st_varindex(touse_pre_event)
-        all_conditional_col = st_varindex(touse_all)
-        all_nonmissing_col  = st_varindex(full_sample_marker)
-        pe_pe_start_date = pe_start_date - (event_date - pe_start_date)
-        pe_window_n = event_date - pe_start_date + 1
-        event_pe_n = pe_end_date - pe_start_date + 1
-
+    void _set_gls_window(real scalar noevent_date, ///
+        real scalar noevent_lastpreeventdate, ///
+        real scalar noevent_firstpreeventdate, ///
+        string scalar timevar_name, ///
+        string scalar gls_window_name, ///
+        string scalar marked_y_name, ///
+        string scalar estimation_window_name) {
         
-
-        // Preallocate regression objects
-        real matrix XX, Xy, M, E, y, X, ystack
-        real vector beta, pre_event_dates, event_beta, id 
-        real scalar j
-        // Setup Main View
-
-        st_view(E, . , (panel_column,time_column,touse_col, touse_pre_event_col, all_conditional_col,regcols), all_nonmissing_col)
-
-        nregressors = cols(regcols) - 1
-        ycol = 6
-        Xcols = 7..7+nregressors-1
-        beta_mat = J(event_pe_n+1,cols(Xcols),.)
-        
-
-        
-        if (gls == "gls") {
-            // Mark data in pre_event_sample which has a balanced
-            //  pre-pre-event sample
-
-            st_subview(id, E, ., 1)
-            j = 1
-            for (i=1; i<=rows(id); i=j+1) {
-                    j = endobs(id, i)
-                    st_subview(X, E, (i,j), (2\5))
-                    // Mark Event-Date as Balanced or Not
-                    if (X[rows(X),1] == event_date ) {
-                        X[rows(X),2] = ((X[rows(X),1] - X[max((rows(X)-event_pe_n,1)),1])==pe_window_n - 1) * X[rows(X),4]
-                        offset = 1
-                    }
-                    else {
-                        offset = 0
-                    }
-                    // Mark Pre-Event Dates as Balanced or Not
-                    for (k=rows(X)-offset; k>=pe_window_n + 1 - offset; k--) {
-                        X[k,3] = ((X[k,1] - X[k-pe_window_n + 1,1])==pe_window_n - 1) * X[k,4]
-                    }
-            }
-        }
-        else {
-            E[.,3] = E[.,2]:==event_date :* E[.,5]
-            E[.,4] = (E[.,2]:>=pe_start_date :& E[.,2]:<=pe_end_date ) :* E[.,5]
-        }
+        real matrix AllData
 
 
-        // Calculate Event Window Betas
-        st_select(M, E, E[.,3])
-        st_subview(y,M,.,ycol)
-        st_subview(X,M,.,Xcols)
+        st_view(AllData=., . , ///
+            (gls_window_name, marked_y_name, timevar_name), ///
+            estimation_window_name)
 
-        if (gls == "gls") {
-            ystack = get_balance_y(event_date, pe_window_n, event_pe_n, 3, E)
-            L = CholOmega(ystack', npc)
-            y = solvelower_wrapper(L,y)
-            X = solvelower_wrapper(L,X)
-        }
-        XX = quadcross(X,X)
-        Xy = quadcross(X,y)
-        beta = cholsolve(XX,Xy)
-        beta_mat[event_pe_n+1,.] = beta'
-
-        // Loop through all pre-event windows
-        F = select(E,  E[.,4])
-        timer_clear()
-        for (i = pe_start_date; i<=pe_end_date; i++) {
-            timer_on(1)
-            j = i -pe_start_date +1
-            st_select(M, F, (F[.,2]:== i))
-            st_subview(y,M,.,ycol)
-            st_subview(X,M,.,Xcols)
-            if (gls == "gls") {
-                ystack = get_balance_y(i, pe_window_n, event_pe_n, 4, E)
-                L = CholOmega(ystack', npc)
-                y = solvelower_wrapper(L,y)
-                X = solvelower_wrapper(L,X)
-                if (mod(j,10) == 0) {
-                printf("Finished %f pre-event calculations\n", j)
-                }
-            }
-
-            XX = quadcross(X,X)
-            Xy = quadcross(X,y)
-            beta = cholsolve(XX,Xy)
-            beta_mat[j,.] = beta'
-        }
-
-
-        // -----------------------------------------------------------------------------
-        // Gather output and test
-        // -----------------------------------------------------------------------------
-        // Generate percentiles under empirical CDF
-
-        event_coefs = beta_mat[rows(beta_mat),.]        
-        pre_event_coefs = beta_mat[1..rows(beta_mat)-1,.]
-        mean_coefs = mean(pre_event_coefs)
-        
-        event_pctile = (colsum(abs(beta_mat:-mean_coefs):>= abs(event_coefs:-mean_coefs))):/(rows(beta_mat))
-        
-        // Generate TS empirical z-score        
-        X = (J(event_pe_n,1,0)\1),J(event_pe_n+1,1,1)
-        y = beta_mat
-        ts_beta = cholsolve(quadcross(X,X), quadcross(X,y))[1,.]
-        sd = sqrt(diagonal(quadvariance(pre_event_coefs)))'
-        ts_z =  abs(event_coefs - mean_coefs):/ (sd :* sqrt((rows(beta_mat))/(rows(beta_mat)-1)))
-        ts_z = 2:*ttail(rows(beta_mat)-2, ts_z)
-        st_matrix(bmat, beta_mat[event_pe_n+1,.])
-        st_matrix(pcdf, event_pctile)
-        st_matrix(ts_zmat, ts_z)
-        st_matrix(betas, beta_mat[1..event_pe_n,.])
+        AllData[.,1] = AllData[.,2] :* (AllData[.,3]:==noevent_date :| (AllData[.,3]:<=noevent_lastpreeventdate :& AllData[.,3]:>=noevent_firstpreeventdate ))
     }
 end
 
 
-// Replace solvelower function with solvelowerlapacke if 
-// Stata is verison 17 or greater
+
+
+capture mata mata drop balance_y()
+mata: 
+
+    real colvector balance_y ( ///
+        real colvector panelvar, ///
+        real colvector touse, ///
+        real scalar pca_window_length) {
+
+        // This function balances the pre-event PCA y data
+        // edits the touse vector and returns a selector for the pre-event data
+
+        // Allocate matrices and scalars
+        real colvector start_position_index, end_position_index, touse_pre_event
+        real scalar i, nobs
+
+        // Initialize touse_pre_event
+        touse_pre_event = J(rows(touse), 1, 0)
+
+        // Since the observations are pre-sorted, we can use the
+        // take the last element for each paneld
+        end_position_index = selectindex((panelvar[1::rows(panelvar)-1] :!= panelvar[2::rows(panelvar)]) \ 1)
+
+        // start_position_index --> first element of each panelid
+        start_position_index =  (1 \ end_position_index[|1 \ rows(end_position_index)-1|] :+ 1)
+
+        // Reset all touse and touse_pre_event values to 0 where there
+        // are not a full number of observations
+        for (i = 1; i <= rows(end_position_index); i++) {
+            nobs = end_position_index[i] - start_position_index[i] + 1
+            // If the number of observations is less than the pca_window_length + 1
+            // Or if the last observation in the panel is marked out
+            if (nobs < pca_window_length + 1| touse[end_position_index[i]] == 0) {
+                // Reset the touse values. May already be 0 if event_date obs is missing
+                touse[end_position_index[i]] = 0
+            }
+            else {
+                // Set the touse_pre_event values to 1
+                touse_pre_event[start_position_index[i]::end_position_index[i]-1] = J(nobs-1,1,1)
+            }
+        }
+        // return touse_pre_event, which selects the valid pre-event y
+        return(touse_pre_event)
+    }
+end
+
+
+capture mata mata drop gls_matrices()
+mata:
+    struct gls_matrices {
+        real matrix X
+        real colvector y
+    }
+end
+
+capture mata mata drop gls_mat()
+mata:
+    real matrix gls_mat (
+        real colvector y, ///
+        real matrix X, ///
+        real matrix pre_event_y_rect, ///
+        real scalar npc
+        ) {
+        
+        L = CholOmega(pre_event_y_rect, npc)
+        y = solvelower_wrapper(L,y)
+        X = solvelower_wrapper(L,X)
+        
+        return(y,X)
+    }
+end
 
 if c(stata_version) >=17 {
     capture mata mata drop solvelower_wrapper()
@@ -522,57 +455,3 @@ else {
     mata numeric matrix solvelower_wrapper(numeric matrix A, numeric matrix B) return (solvelower(A,B))
 }
 
-
-
-
-capture program drop time_section
-program define time_section
-    syntax [,label(string asis) clear list off timeit]
-    
-    * If the timeit option is not fed into this sub-program, it exits without doing anything
-    if mi("`timeit'") {
-        exit
-    }
-
-    if !mi("`list'") {
-        timer off 1
-        qui timer list
-        local total_timer_val = r(t1)
-        di as result "{hline 60}"
-        forval x = 2/$timer_num {
-            local tnum = `x' - 1
-            local timer_val = r(t`x')
-            local percentage = (`timer_val'/`total_timer_val') * 100
-            local cum_percentage = `cum_percentage' + `percentage'
-            di as text "`tnum': ${timer_label`x'}:" _col(30) as result %9.2f `timer_val' ///
-                %9.1f `percentage' "%" %9.1f `cum_percentage' "%"
-        }
-        di as result "{hline 60}"
-        di as text "${timer_label1}:" _col(30) as result %9.2f `total_timer_val'
-        macro drop timer_label* timer_num
-    }
-
-    else if !mi("`clear'") {
-        timer clear
-        macro drop timer_* 
-    }
-
-    else if !mi("`off'") {
-        timer off $timer_num
-    }
-
-    else if mi("${timer_num}") {
-        timer on 1
-        global timer_label1 "Total"
-        global timer_num = 2
-        global timer_label${timer_num} "`label'"
-        timer on $timer_num
-    }
-
-    else {
-        timer off $timer_num 
-        global timer_num =${timer_num} + 1
-        global timer_label${timer_num} "`label'"
-        timer on $timer_num
-    }
-end

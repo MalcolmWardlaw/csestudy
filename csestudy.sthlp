@@ -21,37 +21,34 @@
 {cmdab:csestudy}
 {depvar} [{indepvars}]
 [{help if:if}]
-{cmd:,} {opth event:date(csestudy##eventdate:eventdate)} [{help csestudy##options:options}] {p_end}
+{cmd:,} {opth event:startdate(csestudy##eventdate:date)} {opth firstpre:eventdate(csestudy##firstpreeventdate:date)} {opth lastpre:eventdate(csestudy##lastpreeventdate:date)} [{help csestudy##options:options}] {p_end}
 
 
 {synoptset 27 tabbed}{...}
 {synopthdr}
 {synoptline}
 {syntab:Main}
-{p2coldent:* {opth event:date(csestudy##eventdate:eventdate)}}The start date of the event{p_end}
-{synopt:{opt eventend:date(string)}}Last date of the event. Defaults to the same day as eventdate.{p_end}
-{synopt:{opt npre:eventdays(integer)}}Number of pre-event days in window. Defaults to 200.{p_end}
-{synopt:{opt end:preeventdate(string)}}Last pre-event date. Defaults to one period prior to the event date.{p_end}
-{synopt:{opt start:preeventdate(string)}}Start of pre-event date. If un-specified, defaults to n event days prior to the preeventdate.{p_end}
+{p2coldent:* {opth event:startdate(csestudy##eventstartdate:date)}}The start date of the event.{p_end}
+{p2coldent:* {opth firstpre:eventdate(csestudy##firstpreeventdate:date)}}The first (i.e. earliest) date in the pre-event period. {p_end}
+{p2coldent:* {opth lastpre:eventdate(csestudy##lastpreeventdate:date)}}The last (i.e. latest) date in the pre-event period. {p_end}
 {synopt:{opt gls}}Calculate GLS estimates.{p_end}
 {synopt:{opt npc(integer)}}Number of principle components. Defaults to 100{p_end}
-{synopt:{opt presample:marker(newvar)}}Create variable newvar which marks the pre-event sample.{p_end}
-{synopt:{opt newvar(varname)}}Preserves the multi-day calculated returns in a new variable.{p_end}
-{synopt:{opt precalc:ulated}}If the multi-day returns in the depvar have been pre-caulcuated for each cell, this option will take them as given rather than calculating them on the fly.{p_end}
+{synopt:{opt coefsonly}}Calculates only the coefficients, skipping the significance tests. Programmer option only.{p_end}
 {synoptline}
 {p2colreset}{...}
 {p 4 6 2}
-* {opth event:date(csestudy##eventdate:eventdate)}} is required.{p_end}
+* {opth event:startdate(csestudy##eventstartdate:date)}}, {opth firstpre:eventdate(csestudy##firstpreeventdate:date)}}, and {opth lastpre:eventdate(csestudy##lastpreeventdate:date)}} are required.{p_end}
 
 
 {marker description}{...}
 {title:Description}
 
 {pstd}
-{cmd:csestudy} calculates robust inference for cross-sectional event studies as described in {browse "https://ssrn.com/abstract=4296657":Cohn, Johnson, Liu, and Wardlaw (2024) "Past is Prologue: Inference from the Cross Section of Returns Around an Event"}.{p_end}
+{cmd:csestudy} calculates robust inference for cross-sectional event studies as described in {browse "https://ssrn.com/abstract=4296657":Cohn, Johnson, Liu, and Wardlaw (2025) "Past is Prologue: Inference from the Cross Section of Returns Around an Event"}.{p_end}
 
 {pstd}
-The estimation uses a time-series adjusted portfolio approach to inference about standard errors in which the coefficients are compared against a pre-event window of daily returns and adjusted rejection criteria are computed in the form of a parameterized z-score and a p-value estimated from the empirical distribution (the preferred metric in this approach.){p_end}
+The estimation uses a time-series adjusted portfolio approach to inference about standard errors in which the coefficients are compared against a pre-event window of daily returns and adjusted rejection criteria are computed in the form of a parameterized z-score and a p-value estimated from the empirical distribution (the preferred metric in this approach.)
+{p_end}
 
 {marker options}{...}
 {title:Options}
@@ -60,49 +57,50 @@ The estimation uses a time-series adjusted portfolio approach to inference about
 {dlgtab:Main}
 
 {phang}
-{marker eventdate}{...}
-{opt eventdate(eventdate)} The start date of the event is a required option. If the event is a single period long, this is the only necessary option. The program will use the existing defaults to calculate the significance statistics using the default 200 period pre-event window. If the event is longer than a day, then {opt eventenddate()} must be specified. If it is, the program will calculate a rolling n period window of returns, making sure to skip n period before the end of the pre-event window.
+{marker eventstartdate}{...}
+{opt eventstartdate(date)} The start date of the event. This date refers to the time variable set by tsset.
+{p_end}
 
 {phang}
-{opt eventenddate()} Last date of the event. Defaults to the same day as eventdate.
+{marker lastpreeventdate}{...}
+{opt lastpreeventdate()} The last date in the pre-event period. This must be earlier than the eventstartdate later than lastpreeventdate.
+{p_end}
 
 {phang}
-{opt npreeventdays()} Number of pre-event days in window. Defaults to 200.
-
-{phang}
-{opt endpreeventdate()} Last pre-event date. Defaults to one period prior to the event date.
-
-{phang}
-{opt startpreeventdate()} Start of pre-event date. If un-specified, defaults to n event days prior to the preeventdate.
+{marker firstpreeventdate}{...}
+{opt firstpreeventdate(date)} The first date in the pre-event period. This must be earlier than the eventstartdate and lastpreeventdate.
+{p_end}
 
 {phang}
 {opt gls} Calculate GLS estimates.
+{p_end}
 
 {phang}
 {opt npc()} Number of principle components. Defaults to 100
-
-{phang}
-{opt presample:marker(newvar)} Create variable newvar which marks the pre-event sample.
-
-{phang}
-{opt newvar()} Preserves the multi-day calculated returns in a new variable.
-
-{phang}
-{opt precalculated} If the multi-day returns in the depvar have been pre-caulcuated for each cell, this option will take them as given rather than calculating them on the fly.
+{p_end}
 
 {marker remarks}{...}
 {title:Remarks}
 
 {pstd}
-The GLS estimation requires a strongly balanced panel in the pre-period in order to work, so any ids which do not have a full set of available returns in the pre-period will be dropped. This is done for the user by keeping only the ids which have the maximum number of observations in the pre-period. This is usually not a major issue in daily stock market data, but if your sample is massively cut down by this operation, you may have an unusual set of pre-period observations. The user should check that the data is at least {it:mostly} balanced before proceeding.
+The GLS estimation requires a strongly balanced panel in the pre-period in order to work, so any ids which do not have a full set of available returns in the pre-period will be dropped. This is done for the user, and the observations which satisfy this condition are stored in e(sample). This is usually not a major issue in daily stock market data, but if your sample is significantly cut down by this operation, you may have an unusual set of pre-period observations. 
+{p_end}
+
+{pstd}
+Calculating significance with the estimates also require that there is a sufficiently long window of available data prior to the firstpreeventdate. (Effectively a window equal to {it:eventstartdate} - {it:firstpreeventdate} prior to firstpreeventdate). The user should check that the data is at least {it:mostly} balanced before proceeding.
+{p_end}
 
 {marker examples}{...}
 {title:Examples}
 
-{phang}{cmd:. bcal create trading, from(date) gen(trading_date) center(20081006) replace}{p_end}
+{phang}{cmd:. bcal create trading, from(date) gen(trading_date) center( 19911121) replace}{p_end}
 {phang}{cmd:. tsset permno trading_date}{p_end}
 
-{phang}{cmd:. csestudy ret btm me, eventdate(0)}{p_end}
+{phang}{cmd:. csestudy ret lag_LNMV if abs(prc)>5, eventstartdate(0) firstpreeventdate(-200) lastpreeventdate(-1)}{p_end}
 
-{phang}{cmd:. csestudy ret btm me, start(-210) end(-11) eventdate(0)}{p_end}
+{phang}{cmd:. csestudy ret lag_LNMV if abs(prc)>5, eventstartdate(0) firstpreeventdate(-200) lastpreeventdate(-1) gls npc(100)}{p_end}
+
+{phang}{cmd:. gen ret5 = ret + f1.ret + f2.ret + f3.ret + f4.ret}{p_end}
+
+{phang}{cmd:. csestudy ret lag_LNMV if abs(prc)>5, eventstartdate(0) firstpreeventdate(-204) lastpreeventdate(-5)}{p_end}
 
