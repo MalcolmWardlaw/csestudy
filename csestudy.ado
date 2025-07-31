@@ -19,6 +19,36 @@ program define csestudy, eclass
 
     local n_pre_event_days = `lastpreeventdate' - `firstpreeventdate' + 1
 
+    // Check for valid event and pre-event dates
+    capture assert `eventstartdate' > `lastpreeventdate'
+    if _rc {
+        di as error "Event start date must be after last pre-event date"
+        exit 198
+    }
+    capture assert `lastpreeventdate' > `firstpreeventdate'
+    if _rc {
+        di as error "Last pre-event date must be after first pre-event date"
+        exit 199
+    }
+
+    if !mi("`gls'") {
+        capture assert `npc' < = `n_pre_event_days'
+        if _rc {
+            di as error "Number of principal components must be less than or equal to the number of pre-event days"
+            exit 200
+        }
+        if mi("`coefsonly'") {
+            qui sum `timevar'
+            capture assert r(min) <= `firstpreeventdate' - (`eventstartdate'-`firstpreeventdate')
+            if _rc {
+                local required_window = `eventstartdate'-`firstpreeventdate'
+                di as error "Time variable must have `required_window' observations before the first pre-event date"
+                exit 201
+            }
+        }
+    }
+
+
     local cmdline "csestudy `0'"
     
     tokenize `varlist'
@@ -165,6 +195,7 @@ program define csestudy, eclass
                 local percent_complete_last = `percent_complete'
             }            
         }
+        restore
 
         tempname pcdf ts_z
         mata _get_significance_stats("`all_betas'", "`pcdf'", "`ts_z'")    
@@ -196,7 +227,6 @@ program define csestudy, eclass
         }
         di as text "{hline 13}{c BT}{hline 47}" _n
     }
-    restore
 
     ereturn post `b' , depname("`lhsvar'") esample(`touse')
     ereturn scalar N = `nobs'
@@ -245,7 +275,7 @@ mata:
             pragma unset y_all
             st_subview(y_all, AllData,.,3)
 
-            touse_pre_event = balance_y(panelvar,touse,pca_window_length)
+            touse_pre_event = balance_y(panelvar,touse,y_all,pca_window_length)
             pre_event_y_rect = (colshape(select(y_all,touse_pre_event), pca_window_length))'
         }
 
@@ -386,6 +416,7 @@ mata:
     real colvector balance_y ( ///
         real colvector panelvar, ///
         real colvector touse, ///
+        real colvector y_all, ///
         real scalar pca_window_length) {
 
         // This function balances the pre-event PCA y data
@@ -393,7 +424,7 @@ mata:
 
         // Allocate matrices and scalars
         real colvector start_position_index, end_position_index, touse_pre_event
-        real scalar i, nobs
+        real scalar i, nobs, invalid_panel
 
         // Initialize touse_pre_event
         touse_pre_event = J(rows(touse), 1, 0)
@@ -409,9 +440,14 @@ mata:
         // are not a full number of observations
         for (i = 1; i <= rows(end_position_index); i++) {
             nobs = end_position_index[i] - start_position_index[i] + 1
+            invalid_panel = 0
             // If the number of observations is less than the pca_window_length + 1
+            if (nobs < pca_window_length + 1) invalid_panel = 1
             // Or if the last observation in the panel is marked out
-            if (nobs < pca_window_length + 1| touse[end_position_index[i]] == 0) {
+            if (touse[end_position_index[i]] == 0) invalid_panel = 1
+            // Or if all y observations are 0
+            if (sum(y_all[start_position_index[i]::end_position_index[i]]) == 0) invalid_panel = 1
+            if (invalid_panel == 1) {
                 // Reset the touse values. May already be 0 if event_date obs is missing
                 touse[end_position_index[i]] = 0
             }
