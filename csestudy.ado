@@ -232,10 +232,26 @@ program define csestudy, eclass
     ereturn scalar N = `nobs'
     if mi("`coefsonly'") {
         ereturn matrix betas = `all_betas'
-        ereturn matrix all_N = `all_nobs'
+        ereturn matrix N_all_dates = `all_nobs'
         ereturn matrix pcdf = `pcdf'
         ereturn matrix ts_z = `ts_z'
-    }    
+
+        // Check whether there are an unusually small number of observations for some pre-event windows
+        mata N_all_dates = st_matrix("e(N_all_dates)")
+        mata st_local("event_nobs", strofreal(N_all_dates[1]))
+        mata st_local("min_obs", strofreal(min(N_all_dates)))
+        local min_frac = `min_obs'/ `event_nobs'
+        if `min_frac' < 0.75 {
+            di as error "Warning: Some pre-event windows have fewer than 75%"
+            di as error "of the expected number of observations."
+            di as error "Number of observations in event window = " _continue
+            di as result "`event_nobs'"
+            di as error "Minimum number of observations in a pre-event window = " _continue
+            di as result "`min_obs'"
+            di as error "Check matrix e(N_all_dates) for more details"
+        }
+
+    } 
 
 end
 
