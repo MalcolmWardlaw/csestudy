@@ -94,7 +94,7 @@ program define csestudy, eclass
 
     
     // Get event period coefficients
-    mata _get_coefficients(A, full_index, `eventstartdate', `lastpreeventdate', ///
+    mata _get_coefficients(long_data, full_index, `eventstartdate', `lastpreeventdate', ///
         `firstpreeventdate', `npc' , "`b'", "`nobs'")
 
     // Label beta matrix
@@ -154,7 +154,7 @@ program define csestudy, eclass
                 local noevent_firstpreeventdate = .
             }
 
-            mata _get_coefficients(A, full_index, `noevent_date', `noevent_lastpreeventdate', `noevent_firstpreeventdate', `npc', "`pre_event_b'", "`pre_event_nobs'")
+            mata _get_coefficients(long_data, full_index, `noevent_date', `noevent_lastpreeventdate', `noevent_firstpreeventdate', `npc', "`pre_event_b'", "`pre_event_nobs'")
 
             local j =  `lastpreeventdate' - `noevent_date' + 2
             matrix `all_betas'[`j',1] = `pre_event_b'
@@ -206,8 +206,8 @@ program define csestudy, eclass
     if mi("`coefsonly'") {
         ereturn matrix betas = `all_betas'
         ereturn matrix N_all_dates = `all_nobs'
-        ereturn matrix pcdf = `pcdf'
-        ereturn matrix ts_z = `ts_z'
+        ereturn matrix p = `pcdf'
+        ereturn matrix z = `ts_z'
 
         // Check whether there are an unusually small number of observations for some pre-event windows
         mata N_all_dates = st_matrix("e(N_all_dates)")

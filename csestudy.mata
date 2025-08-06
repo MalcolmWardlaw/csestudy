@@ -156,7 +156,7 @@ end
 
 capture mata mata drop _get_coefficients()
 mata:
-    void _get_coefficients( real matrix A, ///
+    void _get_coefficients(struct data_views scalar long_data, ///
         struct data_indexes scalar full, ///
         real scalar current_date, ///
         real scalar pe_end_date, ///
@@ -172,12 +172,12 @@ mata:
 
         
         current = get_current_indexes(full, current_date, pe_start_date, pe_end_date) 
-        st_subview(y=., A, current.touse_index, 4)
-        st_subview(X=., A, current.touse_index, 5\.)
+        st_subview(y, long_data.y_data, current.touse_index, .)
+        st_subview(X, long_data.X_data, current.touse_index, .)
         X = X, J(rows(X), 1, 1)
         
         if (full.gls_flag == 1) {
-            pre_event_y = A[current.pre_event_touse_index,4]
+            pre_event_y = long_data.y_data[current.pre_event_touse_index]
             pre_event_window_length = pe_end_date - pe_start_date + 1
             pre_event_y_rect = (colshape(pre_event_y,pre_event_window_length))'
             gls_outputs = gls_mat(y, X, pre_event_y_rect, num_principal_components)
