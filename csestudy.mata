@@ -1,60 +1,192 @@
 
-// capture mata mata drop _get_coefficients()
+
+
+capture mata mata drop data_views()
+capture mata mata drop get_data_views()
+mata
+struct data_views {
+    real matrix panelids, timeids, touse, y_data, X_data
+    real scalar nrows
+}
+
+struct data_views scalar get_data_views(real matrix A) {
+    struct data_views scalar long_data
+
+    // Matrix A should contain the following in each column:
+    // 1. panelid
+    // 2. timeid
+    // 3. touse (1 if the observation is valid for on any date, 0 otherwise)
+    // 4. y (the independent variable, can be missing)
+    // 5-end.  X variables  (optional)
+
+    st_subview(long_data.panelids, A, .,1)
+    st_subview(long_data.timeids, A, .,2)
+    st_subview(long_data.touse, A, .,3)
+    st_subview(long_data.y_data, A, .,4)
+    st_subview(long_data.X_data, A, .,5\.)
+    long_data.nrows = rows(A)
+    return(long_data)
+}
+end
+
+
+capture mata mata drop data_indexes()
+capture mata mata drop get_data_indexes()
 mata:
-    void _get_coefficients(string scalar regvar_names, ///
-        string scalar panelvar_name, ///
-        string scalar timevar_name, ///
-        string scalar touse_name, ///
-        string scalar gls_window_name, ///
-        real scalar pca_window_length, ///
-        real scalar num_principal_components, ///
-        string scalar gls_flag, ///
-        string scalar b_macro, ///
-        string scalar nobs_macro) {
+    struct data_indexes {
+    real scalar index_date, gls_flag
+    real matrix data_row_index, valid_touse, valid_y, rect_y
+    }
 
-        real matrix AllData, EventData, gls_outputs, X
-        real colvector pre_event_y_rect, y_all, y, panelvar, touse, b
-        real scalar nobs
+    struct data_indexes scalar get_data_indexes(struct data_views scalar long_data, 
+        string scalar gls) {
+        struct data_indexes scalar full
+        real scalar min_time, max_time, n_time, n_panels
+        real colvector a, sequential_panelids
+        real matrix data_row_index, valid_touse, valid_y, rect_y
 
-        pragma unused timevar_name
+        if (gls == "gls") {
+            full.gls_flag = 1
+        }
+        else {
+            full.gls_flag = 0
+        }        
 
-        if (gls_flag == "gls") {
-        // If GLS is enabled, balance the panel
+        // Step 1: Basic setup
+        min_time = min(long_data.timeids)
+        max_time = max(long_data.timeids)
+        n_time = max_time - min_time + 1
 
-            pragma unset AllData
-            st_view(AllData, . , (panelvar_name, touse_name, tokens(regvar_names)[1]), gls_window_name)
+        a = 1\ (long_data.panelids[2::long_data.nrows] :!= long_data.panelids[1::long_data.nrows-1])
+        sequential_panelids = runningsum(a)
 
-            pragma unset panelvar
-            st_subview(panelvar, AllData,.,1)
+        n_panels = sequential_panelids[rows(sequential_panelids)]
 
-            pragma unset touse
-            st_subview(touse, AllData,.,2)
-
-            pragma unset y_all
-            st_subview(y_all, AllData,.,3)
-
-            touse_pre_event = balance_y(panelvar,touse,y_all,pca_window_length)
-            pre_event_y_rect = (colshape(select(y_all,touse_pre_event), pca_window_length))'
+        data_row_index = J(n_panels, n_time, .)
+        valid_touse = J(n_panels, n_time, 0)
+        if (full.gls_flag == 1) {
+            // If GLS is used, we need to track valid y values
+            // for the pre-event period
+            valid_y = J(n_panels, n_time, 0)
+            rect_y = J(n_panels, n_time, .)
+        }
+        else {
+            valid_y = J(0,0,.)
+            rect_y =  J(0,0,.)
         }
 
-        pragma unset EventData
-        st_view(EventData,., (tokens(regvar_names)), touse_name)
 
-        pragma unset y
-        st_subview(y, EventData,.,1)
+        // Step 2: Fill data_row_index, valid_touse, valid_y, rect_y in a loop
+        for (i = 1; i <= long_data.nrows; i++) {
+            row = sequential_panelids[i]    // since panelid is 1-based sequential
+            col = long_data.timeids[i] - min_time + 1
+            data_row_index[row, col] = i
+            if (long_data.touse[i] == 1) valid_touse[row, col] = 1
+            // If GLS is used, we need to track valid y values
+            if (full.gls_flag == 1) {
+                rect_y[row, col] = long_data.y_data[i]
+                if (long_data.y_data[i] !=.) valid_y[row, col] = 1
+            }
+        }
+        // Step 3: Fill in the full rectangular lookups
 
-        pragma unset X
-        st_subview(X, EventData,.,(2\.))
-        X = X, J(rows(y), 1, 1)
+        full.index_date = min_time
+        full.data_row_index = data_row_index
+        full.valid_touse = valid_touse
+        full.valid_y = valid_y
+        full.rect_y = rect_y
 
-        if (gls_flag == "gls") {
+        return(full)
+    }
+end
+
+
+capture mata mata drop current_data_indexes()
+capture mata mata drop get_current_indexes()
+mata:
+    struct current_data_indexes {
+    real matrix touse_index, pre_event_touse_index
+    }
+
+    struct current_data_indexes scalar get_current_indexes( 
+        struct data_indexes scalar full, real scalar current_date,
+           | real scalar pe_start_date, real scalar pe_end_date) {
+        
+        struct current_data_indexes scalar current
+        real colvector current_valid_y, current_touse, nonzero_ys
+        real rowvector col_selection
+        real matrix current_rect_y
+        real scalar current_col_number, pe_start_col, pe_end_col, total_cols
+        
+        current_col_number = current_date - full.index_date + 1
+
+        if (full.gls_flag == 1) {
+            pe_start_col = pe_start_date - full.index_date + 1
+            pe_end_col = pe_end_date - full.index_date + 1
+            col_selection = (pe_start_col..pe_end_col, current_col_number)
+            total_cols = cols(col_selection)
+
+            // Check if y is valid for all pre-event days
+            current_valid_y = rowsum(full.valid_y[., col_selection]) :== 
+                total_cols
+            // check if y is 0 or close to 0 for all pre-event days
+            current_rect_y = abs(full.rect_y[.,pe_start_col..pe_end_col])
+            nonzero_ys = rowsum(current_rect_y) :>= .01
+            current_valid_y = nonzero_ys :& current_valid_y
+            
+            
+            current_touse = full.valid_touse[., current_col_number] :& current_valid_y
+            current.touse_index = select(full.data_row_index[. , current_col_number],
+                current_touse)
+            current.pre_event_touse_index = vec((select(
+                full.data_row_index[. , (pe_start_col..pe_end_col)],current_touse))')
+        }
+        else {
+            current_touse = full.valid_touse[., current_col_number]
+            current.touse_index = select(full.data_row_index[. , current_col_number],
+                current_touse)
+            
+            current.pre_event_touse_index = J(0,0,.)
+        }
+        return(current)
+    }
+end
+
+
+
+capture mata mata drop _get_coefficients()
+mata:
+    void _get_coefficients( real matrix A, ///
+        struct data_indexes scalar full, ///
+        real scalar current_date, ///
+        real scalar pe_end_date, ///
+        real scalar pe_start_date, ///
+        real scalar num_principal_components, ///
+        string scalar b_macro, ///
+        string scalar nobs_macro) {
+        
+        struct current_data_indexes scalar current
+        real matrix X, pre_event_y_rect, gls_outputs
+        real colvector y, pre_event_y
+        real scalar pre_event_window_length, nobs
+
+        
+        current = get_current_indexes(full, current_date, pe_start_date, pe_end_date) 
+        st_subview(y=., A, current.touse_index, 4)
+        st_subview(X=., A, current.touse_index, 5\.)
+        X = X, J(rows(X), 1, 1)
+        
+        if (full.gls_flag == 1) {
+            pre_event_y = A[current.pre_event_touse_index,4]
+            pre_event_window_length = pe_end_date - pe_start_date + 1
+            pre_event_y_rect = (colshape(pre_event_y,pre_event_window_length))'
             gls_outputs = gls_mat(y, X, pre_event_y_rect, num_principal_components)
             y = gls_outputs[.,1]
             X = gls_outputs[., (2..cols(gls_outputs))]
         }
 
         b = beta_coefficients(y, X)
-        nobs = rows(y)
+        nobs = rows(X)
 
         // Post the coefficients
         st_matrix(b_macro, b')
@@ -62,7 +194,9 @@ mata:
     }     
 end
 
-// capture mata mata drop _get_significance_stats()
+
+
+capture mata mata drop _get_significance_stats()
 mata:
     void _get_significance_stats(string scalar betas_mat, ///
         string scalar pcdf_mat, ///
@@ -88,7 +222,7 @@ end
 
 
 
-// capture mata mata drop beta_coefficients()
+capture mata mata drop beta_coefficients()
 mata:
     real colvector beta_coefficients(real colvector y, real matrix X) {
         // allocate matrices
@@ -103,7 +237,7 @@ mata:
 end
 
 
-// capture mata mata drop CholOmega()
+capture mata mata drop CholOmega()
 mata:
     real matrix CholOmega(real matrix pre_event_y_rect, real scalar npc) {
         real matrix A, U, Vt, pca_coeff, pca_score
@@ -127,7 +261,7 @@ end
 
 
 
-// capture mata mata drop _set_touse()
+capture mata mata drop _set_touse()
 mata:
     void _set_touse(string scalar touse_name, ///
         string scalar marked_all_name, ///
@@ -144,7 +278,7 @@ mata:
 end
 
 
-// capture mata mata drop _set_gls_window()
+capture mata mata drop _set_gls_window()
 mata:
     void _set_gls_window(real scalar noevent_date, ///
         real scalar noevent_lastpreeventdate, ///
@@ -168,59 +302,8 @@ end
 
 
 
-// capture mata mata drop balance_y()
-mata: 
 
-    real colvector balance_y ( ///
-        real colvector panelvar, ///
-        real colvector touse, ///
-        real colvector y_all, ///
-        real scalar pca_window_length) {
-
-        // This function balances the pre-event PCA y data
-        // edits the touse vector and returns a selector for the pre-event data
-
-        // Allocate matrices and scalars
-        real colvector start_position_index, end_position_index, touse_pre_event
-        real scalar i, nobs, invalid_panel
-
-        // Initialize touse_pre_event
-        touse_pre_event = J(rows(touse), 1, 0)
-
-        // Since the observations are pre-sorted, we can use the
-        // take the last element for each paneld
-        end_position_index = selectindex((panelvar[1::rows(panelvar)-1] :!= panelvar[2::rows(panelvar)]) \ 1)
-
-        // start_position_index --> first element of each panelid
-        start_position_index =  (1 \ end_position_index[|1 \ rows(end_position_index)-1|] :+ 1)
-
-        // Reset all touse and touse_pre_event values to 0 where there
-        // are not a full number of observations
-        for (i = 1; i <= rows(end_position_index); i++) {
-            nobs = end_position_index[i] - start_position_index[i] + 1
-            invalid_panel = 0
-            // If the number of observations is less than the pca_window_length + 1
-            if (nobs < pca_window_length + 1) invalid_panel = 1
-            // Or if the last observation in the panel is marked out
-            if (touse[end_position_index[i]] == 0) invalid_panel = 1
-            // Or if all y observations are 0
-            if (sum(y_all[start_position_index[i]::end_position_index[i]]) == 0) invalid_panel = 1
-            if (invalid_panel == 1) {
-                // Reset the touse values. May already be 0 if event_date obs is missing
-                touse[end_position_index[i]] = 0
-            }
-            else {
-                // Set the touse_pre_event values to 1
-                touse_pre_event[start_position_index[i]::end_position_index[i]-1] = J(nobs-1,1,1)
-            }
-        }
-        // return touse_pre_event, which selects the valid pre-event y
-        return(touse_pre_event)
-    }
-end
-
-
-// capture mata mata drop gls_mat()
+capture mata mata drop gls_mat()
 mata:
     real matrix gls_mat (
         real colvector y, ///
@@ -237,12 +320,15 @@ mata:
     }
 end
 
+
+
+
 if c(stata_version) >=17 {
-    // capture mata mata drop solvelower_wrapper()
+    capture mata mata drop solvelower_wrapper()
     mata numeric matrix solvelower_wrapper(numeric matrix A, numeric matrix B) return(solvelowerlapacke(A,B))
 }
 else {
-    // capture mata mata drop solvelower_wrapper()
+    capture mata mata drop solvelower_wrapper()
     mata numeric matrix solvelower_wrapper(numeric matrix A, numeric matrix B) return (solvelower(A,B))
 }
 

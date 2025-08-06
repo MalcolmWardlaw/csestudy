@@ -1,4 +1,4 @@
-*! version 1.6  30July2025
+*! version 1.7  30July2025
 
 
 capture program drop csestudy
@@ -6,7 +6,6 @@ program define csestudy, eclass
     syntax varlist [if], EVENTstartdate(string) ///
         FIRSTPREeventdate(string) LASTPREeventdate(string) ///
         [gls npc(real 100) coefsonly]
-
 
     _xt, trequired
     local panelvar = r(ivar) 
@@ -58,16 +57,26 @@ program define csestudy, eclass
     scalar Dim = wordcount("`rhsvars' constant")
 
     // Mark all valid event and pre-event observations and create touse
-    marksample touse
-    qui replace `touse' = 0 if `timevar' != `eventstartdate'
+    marksample touse_all
 
-    // If GLS is specified, mark gls_window containing event and pre-period
-    if "`gls'" == "gls" {
-        tempvar gls_window
-        mark `gls_window' if !mi(`lhsvar') & ///
-            (inrange(`timevar', `firstpreeventdate', `lastpreeventdate') | ///
-            `timevar' == `eventstartdate')
+    // Set Data View
+    tempvar data_window
+    if mi("`gls'") {
+        gen byte `data_window' = inrange(`timevar',`firstpreeventdate',`eventstartdate')
     }
+    else {
+        gen byte `data_window' = inrange(`timevar',`firstpreeventdate'-(`eventstartdate'-`firstpreeventdate'),`eventstartdate')
+    }
+
+    mata st_view(A = ., ., (               ///
+        st_varindex("`panelvar'"),         ///
+        st_varindex("`timevar'"),          ///
+        st_varindex( "`touse_all'"),       ///
+        st_varindex("`lhsvar'"),           ///
+        st_varindex(tokens("`rhsvars'"))), ///
+            st_varindex("`data_window'"))
+    mata long_data = get_data_views(A)
+    mata full_index = get_data_indexes(long_data,"`gls'")
 
 
     ****************************************************************************
@@ -81,19 +90,12 @@ program define csestudy, eclass
     local colnames `rhsvars' :_cons
     local ncols: word count `colnames'
     matrix `b' = J(1,`ncols',.)
+    matrix rownames `b' = y1
 
+    
     // Get event period coefficients
-    mata _get_coefficients( ///
-        "`varlist'", ///
-        "`panelvar'", ///
-        "`timevar'", ///
-        "`touse'", ///
-        "`gls_window'", ///
-        `n_pre_event_days', ///
-        `npc', ///
-        "`gls'", ///
-        "`b'", ///
-        "`nobs'" )
+    mata _get_coefficients(A, full_index, `eventstartdate', `lastpreeventdate', ///
+        `firstpreeventdate', `npc' , "`b'", "`nobs'")
 
     // Label beta matrix
     local colnames `rhsvars' :_cons
@@ -124,63 +126,35 @@ program define csestudy, eclass
 
         // Set reporting completion marker
         local percent_complete_last = 0
-        di "Percent complete = 0% " _continue
 
-        // Create new touse_pre_event variable
-        // Create subsample that can be quickly marked if a large
-        // amount of data is retained in the Stata dataset
-        marksample marked_all
-        tempvar touse_pre_event estimation_window
-        gen byte `touse_pre_event' = 0
         if "`gls'" == "gls" {
             // GLS needs to test data back to n_pre_events prior
             local all_data_start_date = `firstpreeventdate' - (`eventstartdate'-`firstpreeventdate')
-            // GLS also requires an ID vector to test whether !mi(lhsvar)
-            tempvar marked_y
-            gen byte `marked_y' = !mi(`lhsvar')
-
         }
         else {
             local all_data_start_date = `firstpreeventdate'            
         }
 
-        // Mark subset of data which should be tested for valid inclusion
-        gen byte `estimation_window' = inrange(`timevar',`all_data_start_date',`eventstartdate')
-
-        preserve
-        qui keep if `estimation_window'
         // Loop through each pre-event date and run regression
+        if "`gls'" == "gls" {
+            di "Percent complete = 0% " _continue
+        }
+
         tempname pre_event_b pre_event_nobs
         forval noevent_date = `lastpreeventdate'(-1)`firstpreeventdate' {
-
-            mata _set_touse("`touse_pre_event'", "`marked_all'", ///
-                "`timevar'", "`estimation_window'", `noevent_date')
 
             if "`gls'" == "gls" {
                 local noevent_lastpreeventdate = `noevent_date' - (`eventstartdate' - `lastpreeventdate')
                 local noevent_firstpreeventdate = `noevent_date' - (`eventstartdate' - `firstpreeventdate')
 
-                mata _set_gls_window(`noevent_date', ///
-                    `noevent_lastpreeventdate', ///
-                    `noevent_firstpreeventdate', ///
-                    "`timevar'", ///
-                    "`gls_window'", ///
-                    "`marked_y'", ///
-                    "`estimation_window'"
-                )
             }
-            
-            mata _get_coefficients( ///
-                "`varlist'", ///
-                "`panelvar'", ///
-                "`timevar'", ///
-                "`touse_pre_event'", ///
-                "`gls_window'", ///
-                `n_pre_event_days', ///
-                `npc', ///
-                "`gls'", ///
-                "`pre_event_b'", ///
-                "`pre_event_nobs'" )
+            else {
+                // Under OLS, the pre-non-event window is unused
+                local noevent_lastpreeventdate = .
+                local noevent_firstpreeventdate = .
+            }
+
+            mata _get_coefficients(A, full_index, `noevent_date', `noevent_lastpreeventdate', `noevent_firstpreeventdate', `npc', "`pre_event_b'", "`pre_event_nobs'")
 
             local j =  `lastpreeventdate' - `noevent_date' + 2
             matrix `all_betas'[`j',1] = `pre_event_b'
@@ -190,13 +164,12 @@ program define csestudy, eclass
             local pe_regno =  `lastpreeventdate' - `noevent_date' + 1
             local pe_total = `lastpreeventdate' - `firstpreeventdate' + 1
             local percent_complete = `pe_regno'/`pe_total' * 100
-            if `percent_complete' - `percent_complete_last' >= 10 {
+            if `percent_complete' - `percent_complete_last' >= 10 & "`gls'" == "gls" {
                 di "... " %-2.0f `percent_complete' "% " _continue
                 local percent_complete_last = `percent_complete'
             }            
         }
-        restore
-
+        
         tempname pcdf ts_z
         mata _get_significance_stats("`all_betas'", "`pcdf'", "`ts_z'")    
         matrix rownames `pcdf' = y1 
