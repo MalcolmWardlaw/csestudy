@@ -106,11 +106,12 @@ capture mata mata drop get_current_indexes()
 mata:
     struct current_data_indexes {
     real matrix touse_index, pre_event_touse_index
+    real scalar pe_start_date, pe_end_date, pre_event_window_length
     }
 
     struct current_data_indexes scalar get_current_indexes( 
         struct data_indexes scalar full, real scalar current_date,
-           | real scalar pe_start_date, real scalar pe_end_date) {
+           | real scalar pe_end_date, real scalar pe_start_date ) {
         
         struct current_data_indexes scalar current
         real colvector current_valid_y, current_touse, nonzero_ys
@@ -148,6 +149,9 @@ mata:
             
             current.pre_event_touse_index = J(0,0,.)
         }
+        current.pe_start_date = pe_start_date
+        current.pe_end_date = pe_end_date
+        current.pre_event_window_length = pe_end_date - pe_start_date + 1
         return(current)
     }
 end
@@ -157,29 +161,24 @@ end
 capture mata mata drop _get_coefficients()
 mata:
     void _get_coefficients(struct data_views scalar long_data, ///
-        struct data_indexes scalar full, ///
-        real scalar current_date, ///
-        real scalar pe_end_date, ///
-        real scalar pe_start_date, ///
-        real scalar num_principal_components, ///
+        struct current_data_indexes scalar current, ///
         string scalar b_macro, ///
-        string scalar nobs_macro) {
+        string scalar nobs_macro, | ///
+        string scalar gls_flag, ///
+        real scalar num_principal_components
+        ) {
         
-        struct current_data_indexes scalar current
         real matrix X, pre_event_y_rect, gls_outputs
         real colvector y, pre_event_y
         real scalar pre_event_window_length, nobs
 
-        
-        current = get_current_indexes(full, current_date, pe_start_date, pe_end_date) 
         st_subview(y, long_data.y_data, current.touse_index, .)
         st_subview(X, long_data.X_data, current.touse_index, .)
         X = X, J(rows(X), 1, 1)
         
-        if (full.gls_flag == 1) {
+        if (gls_flag == "gls") {
             pre_event_y = long_data.y_data[current.pre_event_touse_index]
-            pre_event_window_length = pe_end_date - pe_start_date + 1
-            pre_event_y_rect = (colshape(pre_event_y,pre_event_window_length))'
+            pre_event_y_rect = (colshape(pre_event_y, current.pre_event_window_length))'
             gls_outputs = gls_mat(y, X, pre_event_y_rect, num_principal_components)
             y = gls_outputs[.,1]
             X = gls_outputs[., (2..cols(gls_outputs))]

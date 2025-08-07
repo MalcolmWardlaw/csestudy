@@ -92,10 +92,42 @@ program define csestudy, eclass
     matrix `b' = J(1,`ncols',.)
     matrix rownames `b' = y1
 
-    
+
+
+
     // Get event period coefficients
-    mata _get_coefficients(long_data, full_index, `eventstartdate', `lastpreeventdate', ///
-        `firstpreeventdate', `npc' , "`b'", "`nobs'")
+    mata current_index = get_current_indexes(full_index, ///
+        `eventstartdate', `lastpreeventdate', `firstpreeventdate')
+
+    // Check for number of valid observations in event-period (with or without balancing)
+    mata st_local("valid_obs", strofreal(rows(current_index.touse_index)))
+    if "`gls'" == "gls" {
+        if `valid_obs' == 0 {
+            di as error "Error: After balancing there are NO valid observations at event date `eventstartdate'."
+            di as error "Event and pre-period windows have no panels with sequential observations."
+            di as error "Check data structure to make sure trading date scheme is continguous."
+            exit 202
+        }
+
+        if `valid_obs' < `npc' + 10 {
+            di as error "Error: After balancing there are only `valid_obs' valid observations at event date `eventstartdate'."
+            di as error "Event and pre-event panels lack a sufficient number"
+            di as error "of sequential observations to perform PCA with `npc' components."
+            di as error "Check for an unusually large number of gaps."
+            exit 202
+        }
+    }
+    else {
+        if `valid_obs' == 0 {
+            di as error "Error: There are no valid observations at date `eventstartdate'."
+            di as error "Check data structure to make sure trading date scheme is continguous."
+            exit 203
+        }
+    }
+
+
+    mata _get_coefficients(long_data, current_index, "`b'", "`nobs'", "`gls'", `npc')
+
 
     // Label beta matrix
     local colnames `rhsvars' :_cons
@@ -153,8 +185,39 @@ program define csestudy, eclass
                 local noevent_lastpreeventdate = .
                 local noevent_firstpreeventdate = .
             }
+            mata current_index = get_current_indexes(full_index, ///
+                `noevent_date', `noevent_lastpreeventdate', `noevent_firstpreeventdate') 
 
-            mata _get_coefficients(long_data, full_index, `noevent_date', `noevent_lastpreeventdate', `noevent_firstpreeventdate', `npc', "`pre_event_b'", "`pre_event_nobs'")
+            // Check for number of valid observations in event-period (with or without balancing)
+            mata st_local("valid_obs", strofreal(rows(current_index.touse_index)))
+            if "`gls'" == "gls" {
+                if `valid_obs' == 0 {
+                    di as error "Error: After balancing there are NO valid observations at pseudo-event date `eventstartdate'."
+                    di as error "Psuedo-event and pre-period windows have no panels with sequential observations."
+                    di as error "Check data structure to make sure trading date scheme is continguous."
+                    exit 202
+                }
+
+                if `valid_obs' < `npc' + 10 {
+                    di as error "Error: After balancing there are only `valid_obs' valid observations at event date `eventstartdate'."
+                    di as error "Event and pre-event panels lack a sufficient number"
+                    di as error "of sequential observations to perform PCA with `npc' components."
+                    di as error "Check for an unusually large number of gaps."
+                    exit 202
+                }
+
+            }
+            else {
+                if `valid_obs' == 0 {
+                    di as error "Error: There are no valid observations at date `eventstartdate'."
+                    di as error "Check data structure to make sure trading date scheme is continguous."
+                    exit 203
+                }
+            }
+
+
+        
+            mata _get_coefficients(long_data, current_index, "`pre_event_b'", "`pre_event_nobs'", "`gls'", `npc')
 
             local j =  `lastpreeventdate' - `noevent_date' + 2
             matrix `all_betas'[`j',1] = `pre_event_b'
