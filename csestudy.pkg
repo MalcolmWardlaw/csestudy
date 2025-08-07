@@ -15,7 +15,8 @@ d Requires: Stata version 14
 d
 d Required packages: ?
 d
-d Distribution-Date: 20230531
+d Distribution-Date: 20250805
 d
 f csestudy.ado
+f csestudy.mata
 f csestudy.sthlp
