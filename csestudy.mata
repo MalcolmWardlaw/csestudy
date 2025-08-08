@@ -260,48 +260,6 @@ end
 
 
 
-capture mata mata drop _set_touse()
-mata:
-    void _set_touse(string scalar touse_name, ///
-        string scalar marked_all_name, ///
-        string scalar timevar_name, ///
-        string scalar estimation_window_name, ///
-        real scalar eventstartdate) {
-        
-        real matrix AllData
-
-        st_view(AllData=., . , (touse_name, marked_all_name, timevar_name), ///
-        estimation_window_name)
-        AllData[.,1] = AllData[.,2] :* (AllData[.,3]:==eventstartdate)
-    }
-end
-
-
-capture mata mata drop _set_gls_window()
-mata:
-    void _set_gls_window(real scalar noevent_date, ///
-        real scalar noevent_lastpreeventdate, ///
-        real scalar noevent_firstpreeventdate, ///
-        string scalar timevar_name, ///
-        string scalar gls_window_name, ///
-        string scalar marked_y_name, ///
-        string scalar estimation_window_name) {
-        
-        real matrix AllData
-
-
-        st_view(AllData=., . , ///
-            (gls_window_name, marked_y_name, timevar_name), ///
-            estimation_window_name)
-
-        AllData[.,1] = AllData[.,2] :* (AllData[.,3]:==noevent_date :| (AllData[.,3]:<=noevent_lastpreeventdate :& AllData[.,3]:>=noevent_firstpreeventdate ))
-    }
-end
-
-
-
-
-
 capture mata mata drop gls_mat()
 mata:
     real matrix gls_mat (

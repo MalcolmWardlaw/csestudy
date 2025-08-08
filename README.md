@@ -49,6 +49,12 @@ Note that the command will accept dates either as integer values or an Stata fun
 net install csestudy, from("https://malcolmwardlaw.github.io/csestudy/") all replace
 ```
 
+or, if csestudy was previously installed, simply update it:
+
+```stata
+ado update csestudy
+```
+
 ## Example
 
 ```stata
