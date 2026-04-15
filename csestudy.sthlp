@@ -32,7 +32,8 @@
 {p2coldent:* {opth firstpre:eventdate(csestudy##firstpreeventdate:date)}}The first (i.e. earliest) date in the pre-event period. {p_end}
 {p2coldent:* {opth lastpre:eventdate(csestudy##lastpreeventdate:date)}}The last (i.e. latest) date in the pre-event period. {p_end}
 {synopt:{opt gls}}Calculate GLS estimates.{p_end}
-{synopt:{opt npc(integer)}}Number of principle components. Defaults to 100{p_end}
+{synopt:{opt npc(integer)}}Number of principal components. Defaults to 100{p_end}
+{synopt:{opt woodbury}}Use the Woodbury matrix identity for GLS instead of Cholesky decomposition. Faster but slightly less numerically precise. Requires {opt gls}.{p_end}
 {synopt:{opt coefsonly}}Calculates only the coefficients, skipping the significance tests. Programmer option only.{p_end}
 {synoptline}
 {p2colreset}{...}
@@ -44,7 +45,7 @@
 {title:Description}
 
 {pstd}
-{cmd:csestudy} calculates robust inference for cross-sectional event studies as described in {browse "https://ssrn.com/abstract=4296657":Cohn, Johnson, Liu, and Wardlaw (2025) "Past is Prologue: Inference from the Cross Section of Returns Around an Event"}.{p_end}
+{cmd:csestudy} calculates robust inference for cross-sectional event studies as described in {browse "https://doi.org/10.1016/j.jfineco.2026.104278":Cohn, Johnson, Liu, and Wardlaw (2026) "Past is Prologue: Inference from the Cross Section of Returns Around an Event," {it:Journal of Financial Economics} 180, 104278}.{p_end}
 
 {pstd}
 The estimation uses a time-series adjusted portfolio approach to inference about standard errors in which the coefficients are compared against a pre-event window of daily returns and adjusted rejection criteria are computed in the form of a parameterized z-score and a p-value estimated from the empirical distribution (the preferred metric in this approach.)
@@ -76,7 +77,15 @@ The estimation uses a time-series adjusted portfolio approach to inference about
 {p_end}
 
 {phang}
-{opt npc()} Number of principle components. Defaults to 100
+{opt npc()} Number of principal components. Defaults to 100.
+{p_end}
+
+{phang}
+{opt woodbury} Use the Woodbury matrix identity to compute the GLS transformation instead of a
+Cholesky decomposition of the full covariance matrix. This inverts only a k x k matrix
+(k = npc) rather than factoring the N x N covariance matrix, yielding a ~50-66% speedup
+per iteration. The tradeoff is slightly reduced numerical precision due to the wide range
+of idiosyncratic variances. Requires {opt gls}.
 {p_end}
 
 {marker remarks}{...}
@@ -99,6 +108,12 @@ Calculating significance with the estimates also require that there is a suffici
 {phang}{cmd:. csestudy ret lag_LNMV if abs(prc)>5, eventstartdate(0) firstpreeventdate(-200) lastpreeventdate(-1)}{p_end}
 
 {phang}{cmd:. csestudy ret lag_LNMV if abs(prc)>5, eventstartdate(0) firstpreeventdate(-200) lastpreeventdate(-1) gls npc(100)}{p_end}
+
+{pstd}GLS with Woodbury identity (faster, slightly less precise):{p_end}
+
+{phang}{cmd:. csestudy ret lag_LNMV if abs(prc)>5, eventstartdate(0) firstpreeventdate(-200) lastpreeventdate(-1) gls npc(100) woodbury}{p_end}
+
+{pstd}Multi-day event window using cumulative returns:{p_end}
 
 {phang}{cmd:. gen ret5 = ret + f1.ret + f2.ret + f3.ret + f4.ret}{p_end}
 

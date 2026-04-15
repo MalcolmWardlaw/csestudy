@@ -1,11 +1,11 @@
-*! version 1.7  30July2025
+*! version 1.8  15April2026
 
 
 capture program drop csestudy
 program define csestudy, eclass
     syntax varlist [if], EVENTstartdate(string) ///
         FIRSTPREeventdate(string) LASTPREeventdate(string) ///
-        [gls npc(real 100) coefsonly]
+        [gls npc(real 100) coefsonly WOODbury]
 
     _xt, trequired
     local panelvar = r(ivar) 
@@ -28,6 +28,11 @@ program define csestudy, eclass
     if _rc {
         di as error "Last pre-event date must be after first pre-event date"
         exit 199
+    }
+
+    if !mi("`woodbury'") & mi("`gls'") {
+        di as error "woodbury option requires gls"
+        exit 198
     }
 
     if !mi("`gls'") {
@@ -126,7 +131,7 @@ program define csestudy, eclass
     }
 
 
-    mata _get_coefficients(long_data, current_index, "`b'", "`nobs'", "`gls'", `npc')
+    mata _get_coefficients(long_data, current_index, "`b'", "`nobs'", "`gls'", `npc', "`woodbury'")
 
 
     // Label beta matrix
@@ -225,7 +230,7 @@ program define csestudy, eclass
 
 
         
-            mata _get_coefficients(long_data, current_index, "`pre_event_b'", "`pre_event_nobs'", "`gls'", `npc')
+            mata _get_coefficients(long_data, current_index, "`pre_event_b'", "`pre_event_nobs'", "`gls'", `npc', "`woodbury'")
 
             local j =  `lastpreeventdate' - `noevent_date' + 2
             matrix `all_betas'[`j',1] = `pre_event_b'
@@ -256,7 +261,12 @@ program define csestudy, eclass
 
         di _n
         if !mi("`gls'") {
-            di as text "GLS Estimates with Time Series Corrected Errors"
+            if !mi("`woodbury'") {
+                di as text "GLS Estimates with Time Series Corrected Errors (Woodbury)"
+            }
+            else {
+                di as text "GLS Estimates with Time Series Corrected Errors"
+            }
         }
         else {
             di as text "OLS Estimates with Time Series Corrected Errors"
