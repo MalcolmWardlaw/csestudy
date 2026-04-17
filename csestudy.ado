@@ -1,11 +1,11 @@
-*! version 1.7  30July2025
+*! version 1.8  15April2026
 
 
 capture program drop csestudy
 program define csestudy, eclass
     syntax varlist [if], EVENTstartdate(string) ///
         FIRSTPREeventdate(string) LASTPREeventdate(string) ///
-        [gls npc(real 100) coefsonly]
+        [gls npc(real 100) coefsonly WOODbury]
 
     _xt, trequired
     local panelvar = r(ivar) 
@@ -28,6 +28,11 @@ program define csestudy, eclass
     if _rc {
         di as error "Last pre-event date must be after first pre-event date"
         exit 199
+    }
+
+    if !mi("`woodbury'") & mi("`gls'") {
+        di as error "woodbury option requires gls"
+        exit 198
     }
 
     if !mi("`gls'") {
@@ -126,7 +131,7 @@ program define csestudy, eclass
     }
 
 
-    mata _get_coefficients(long_data, current_index, "`b'", "`nobs'", "`gls'", `npc')
+    mata _get_coefficients(long_data, current_index, "`b'", "`nobs'", "`gls'", `npc', "`woodbury'")
 
 
     // Label beta matrix
@@ -140,9 +145,17 @@ program define csestudy, eclass
         // Allocate all_betas matrix and store 
         // event period coefficient at start of matrix
         matrix `all_betas' = J(`n_pre_event_days'+1,`ncols',.)    
-        local all_betas_colnames `eventstartdate'
+        
+        local time_format: format `timevar'
+        if substr("`time_format'",1,3) == "%tb" {
+            local label_format `time_format'
+        }
+
+        local date_label: di `time_format' `eventstartdate'
+        local all_betas_colnames `date_label'
         forval i = `lastpreeventdate' (-1) `firstpreeventdate' {
-            local all_betas_colnames `all_betas_colnames' "`i'"
+            local date_label: di `time_format' `i'
+            local all_betas_colnames `all_betas_colnames' `date_label'
         }
         matrix colnames `all_betas' = `colnames'
         matrix rownames `all_betas' = `all_betas_colnames'
@@ -217,7 +230,7 @@ program define csestudy, eclass
 
 
         
-            mata _get_coefficients(long_data, current_index, "`pre_event_b'", "`pre_event_nobs'", "`gls'", `npc')
+            mata _get_coefficients(long_data, current_index, "`pre_event_b'", "`pre_event_nobs'", "`gls'", `npc', "`woodbury'")
 
             local j =  `lastpreeventdate' - `noevent_date' + 2
             matrix `all_betas'[`j',1] = `pre_event_b'
@@ -241,14 +254,30 @@ program define csestudy, eclass
         matrix rownames `ts_z' = y1
         matrix colnames `ts_z' = `rhsvars' :_cons
 
+        local event_start_date: display `label_format' `eventstartdate'
+        local pre_event_start: display `label_format' `firstpreeventdate'
+        local pre_event_end: display `label_format' `lastpreeventdate'
+
+
         di _n
         if !mi("`gls'") {
-            di as text "GLS Estimates with Time Series Corrected Errors"
+            if !mi("`woodbury'") {
+                di as text "GLS Estimates with Time Series Corrected Errors (Woodbury)"
+            }
+            else {
+                di as text "GLS Estimates with Time Series Corrected Errors"
+            }
         }
         else {
             di as text "OLS Estimates with Time Series Corrected Errors"
         }
 
+        di as text "{hline 61}"
+        di as text "Event start date: "     _col(25) as result "`event_start_date'" 
+        di as text "Pre-event window: "  _col(25) as result "`pre_event_start'"  ///
+            as text " to " as result "`pre_event_end'"
+        di as text "{hline 61}" _n
+        
         di _col(36) as text "Number of obs  = " as result %9.0fc `nobs'
         di _col(24) as text "Number of pre-period dates = " as result %9.0fc `n_pre_event_days'
 
@@ -271,7 +300,7 @@ program define csestudy, eclass
         ereturn matrix N_all_dates = `all_nobs'
         ereturn matrix p = `pcdf'
         ereturn matrix z = `ts_z'
-
+        ereturn local event_start_date = "`event_output'"
         // Check whether there are an unusually small number of observations for some pre-event windows
         mata N_all_dates = st_matrix("e(N_all_dates)")
         mata st_local("event_nobs", strofreal(N_all_dates[1]))

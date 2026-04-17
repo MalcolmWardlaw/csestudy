@@ -165,9 +165,10 @@ mata:
         string scalar b_macro, ///
         string scalar nobs_macro, | ///
         string scalar gls_flag, ///
-        real scalar num_principal_components
+        real scalar num_principal_components, ///
+        string scalar woodbury_flag
         ) {
-        
+
         real matrix X, pre_event_y_rect, gls_outputs
         real colvector y, pre_event_y
         real scalar pre_event_window_length, nobs
@@ -175,22 +176,30 @@ mata:
         st_subview(y, long_data.y_data, current.touse_index, .)
         st_subview(X, long_data.X_data, current.touse_index, .)
         X = X, J(rows(X), 1, 1)
-        
+
+        nobs = rows(X)
+
         if (gls_flag == "gls") {
             pre_event_y = long_data.y_data[current.pre_event_touse_index]
             pre_event_y_rect = (colshape(pre_event_y, current.pre_event_window_length))'
-            gls_outputs = gls_mat(y, X, pre_event_y_rect, num_principal_components)
-            y = gls_outputs[.,1]
-            X = gls_outputs[., (2..cols(gls_outputs))]
+            if (woodbury_flag == "woodbury") {
+                b = gls_beta_woodbury(y, X, pre_event_y_rect, num_principal_components)
+            }
+            else {
+                gls_outputs = gls_mat(y, X, pre_event_y_rect, num_principal_components)
+                y = gls_outputs[.,1]
+                X = gls_outputs[., (2..cols(gls_outputs))]
+                b = beta_coefficients(y, X)
+            }
         }
-
-        b = beta_coefficients(y, X)
-        nobs = rows(X)
+        else {
+            b = beta_coefficients(y, X)
+        }
 
         // Post the coefficients
         st_matrix(b_macro, b')
         st_numscalar(nobs_macro, nobs)
-    }     
+    }
 end
 
 
@@ -268,16 +277,68 @@ mata:
         real matrix pre_event_y_rect, ///
         real scalar npc
         ) {
-        
+
         L = CholOmega(pre_event_y_rect, npc)
         y = solvelower_wrapper(L,y)
         X = solvelower_wrapper(L,X)
-        
+
         return(y,X)
     }
 end
 
 
+capture mata mata drop gls_beta_woodbury()
+mata:
+    real colvector gls_beta_woodbury (
+        real colvector y, ///
+        real matrix X, ///
+        real matrix pre_event_y_rect, ///
+        real scalar npc
+        ) {
+        // Woodbury identity approach to GLS.
+        // Computes beta = (X' Omega^{-1} X)^{-1} X' Omega^{-1} y directly
+        // without forming or factoring the full N x N Omega matrix.
+        //
+        // Omega = V Lambda V' + D  where D = diag(sig2_e), V is N x k PCA loadings
+        // Omega^{-1} = D^{-1} - D^{-1} V M V' D^{-1}
+        //   where M = (Lambda^{-1} + V' D^{-1} V)^{-1}   (k x k)
+        //
+        // The only matrix inversion is k x k (k = npc), vs N x N for Cholesky.
+        // Speedup is ~50-66% but with slightly less numerical precision due to
+        // the wide range of idiosyncratic variances entering D^{-1}.
+
+        real matrix A, U, Vt, V, pca_score
+        real matrix Lambda, VtDinv, M, Oinv_X
+        real colvector d, D_inv, Oinv_y, beta
+        real vector s
+
+        A = pre_event_y_rect :- mean(pre_event_y_rect)
+
+        fullsvd(A, U, s, Vt)
+
+        V = Vt'[, 1..npc]
+        pca_score = A * V
+        Lambda = diag(variance(pca_score))
+
+        // Idiosyncratic variance (diagonal only)
+        d = diagonal(variance(A - pca_score * V'))
+        D_inv = 1 :/ d
+
+        // Core Woodbury:  M = (Lambda^{-1} + V' D^{-1} V)^{-1}
+        VtDinv = V' :* D_inv'
+        M = invsym(invsym(Lambda) + VtDinv * V)
+
+        // Apply Omega^{-1} to y and X:
+        //   Omega^{-1} z = D^{-1} z - (D^{-1} V) M (V' D^{-1}) z
+        Oinv_y = D_inv :* y - (D_inv :* V) * M * (VtDinv * y)
+        Oinv_X = D_inv :* X - (D_inv :* V) * M * (VtDinv * X)
+
+        // GLS beta = (X' Omega^{-1} X)^{-1} X' Omega^{-1} y
+        beta = cholsolve(quadcross(X, Oinv_X), quadcross(X, Oinv_y))
+
+        return(beta)
+    }
+end
 
 
 if c(stata_version) >=17 {
