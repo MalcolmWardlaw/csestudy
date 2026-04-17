@@ -92,20 +92,70 @@ of idiosyncratic variances. Requires {opt gls}.
 {title:Remarks}
 
 {pstd}
-The GLS estimation requires a strongly balanced panel in the pre-period in order to work, so any ids which do not have a full set of available returns in the pre-period will be dropped. This is done for the user, and the observations which satisfy this condition are stored in e(sample). This is usually not a major issue in daily stock market data, but if your sample is significantly cut down by this operation, you may have an unusual set of pre-period observations. 
+The GLS estimation requires a strongly balanced panel in the pre-period in order to work, so any ids which do not have a full set of available returns in the pre-period will be dropped. This is done for the user, and the observations which satisfy this condition are stored in e(sample). This is usually not a major issue in daily stock market data, but if your sample is significantly cut down by this operation, you may have an unusual set of pre-period observations.
 {p_end}
 
 {pstd}
 Calculating significance with the estimates also require that there is a sufficiently long window of available data prior to the firstpreeventdate. (Effectively a window equal to {it:eventstartdate} - {it:firstpreeventdate} prior to firstpreeventdate). The user should check that the data is at least {it:mostly} balanced before proceeding.
 {p_end}
 
+{dlgtab:Event Date Input}
+
+{pstd}
+The date options accept integer values or Stata expressions evaluated at runtime. For example:{p_end}
+
+{phang}{cmd:. csestudy ret lag_LNMV, eventstartdate(100) ...}{p_end}
+{phang}{cmd:. csestudy ret lag_LNMV, eventstartdate(bofd("mycal",mdy(9,19,2011))) ...}{p_end}
+
+{pstd}
+It is important that the time variable tracks {it:trading days} rather than calendar days.
+The simplest way to achieve this is with {help bcal:bcal create}, which constructs a
+business calendar from the dates in your data and generates a sequential trading-day
+variable:{p_end}
+
+{phang}{cmd:. bcal create trading, from(date) gen(trading_date) center(20081006) replace}{p_end}
+{phang}{cmd:. tsset permno trading_date}{p_end}
+
+{pstd}
+Alternatively, many users have historically used a simple sequential integer for the time
+variable:{p_end}
+
+{phang}{cmd:. bysort permno (date): gen time = _n}{p_end}
+{phang}{cmd:. tsset permno time}{p_end}
+
+{pstd}
+This works as long as the panel is strongly balanced (i.e. all observations begin at the
+same date and exist on all trading days). The {cmd:bcal} approach is more robust to missing
+data and non-trading days, while the sequential integer approach can be more convenient if
+your data is already structured that way.{p_end}
+
+{marker sampledata}{...}
+{dlgtab:Sample Data}
+
+{pstd}
+A synthetic dataset with realistic CRSP-like properties is included for testing. It contains
+300 firms over 461 S&P 500 trading days (Jan 2007 {hline 1} Nov 2008), with a size-dependent
+abnormal return (0.15% per sd of {bf:lag_LNMV}) injected on 2008-10-06. The panel is long
+enough to support GLS estimation with a 200-day pre-event window.{p_end}
+
+{pstd}Load directly from GitHub:{p_end}
+
+{phang}{cmd:. use "https://raw.githubusercontent.com/MalcolmWardlaw/csestudy/release/examples/sample_data.dta", clear}{p_end}
+
 {marker examples}{...}
 {title:Examples}
 
-{phang}{cmd:. bcal create trading, from(date) gen(trading_date) center( 19911121) replace}{p_end}
+{pstd}Load the sample data and set up the panel:{p_end}
+
+{phang}{cmd:. use "https://raw.githubusercontent.com/MalcolmWardlaw/csestudy/release/examples/sample_data.dta", clear}{p_end}
+{phang}{cmd:. bcal create trading, from(date) gen(trading_date) center(20081006) replace}{p_end}
 {phang}{cmd:. tsset permno trading_date}{p_end}
 
+{pstd}OLS with time-series corrected errors:{p_end}
+
 {phang}{cmd:. csestudy ret lag_LNMV if abs(prc)>5, eventstartdate(0) firstpreeventdate(-200) lastpreeventdate(-1)}{p_end}
+
+{pstd}GLS with 100 principal components (Cholesky, default):{p_end}
 
 {phang}{cmd:. csestudy ret lag_LNMV if abs(prc)>5, eventstartdate(0) firstpreeventdate(-200) lastpreeventdate(-1) gls npc(100)}{p_end}
 

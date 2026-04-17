@@ -2,3 +2,8 @@ working
 test
 .DS_Store
 *.stbcal
+.venv/
+__pycache__/
+*.pyc
+.python-version
+

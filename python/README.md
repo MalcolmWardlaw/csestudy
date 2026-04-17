@@ -18,7 +18,18 @@ pip install -e ./python       # editable / development install
 import pandas as pd
 from csestudy import CSEventStudy
 
-df = pd.read_csv("my_panel.csv")
+# Load the included sample data (or substitute your own panel)
+df = pd.read_csv("examples/sample_data.csv")
+
+# ── Reindex dates to sequential integers (Python equivalent of bcal) ──
+# The time_var must contain values that event_date, pre_start, and
+# pre_end refer to.  With CRSP-style data the simplest approach is to
+# map calendar dates to sequential trading-day integers centered on the
+# event date (analogous to Stata's  bcal create ... center(...)).
+trading_dates = sorted(df["date"].unique())
+event_raw = 17811                          # 2008-10-06 as Stata integer
+seq_map = {d: i - trading_dates.index(event_raw) for i, d in enumerate(trading_dates)}
+df["tdate"] = df["date"].map(seq_map)      # tdate: ..., -2, -1, 0, 1, 2, ...
 
 # OLS
 result = CSEventStudy(
@@ -29,8 +40,8 @@ result = CSEventStudy(
     depvar="ret",
     indepvars=["lag_LNMV"],
     panel_var="permno",
-    time_var="date",
-    sample="abs_prc > 5",      # optional pandas query (like Stata's [if])
+    time_var="tdate",
+    sample="prc.abs() > 5",   # optional pandas query (like Stata's [if])
     method="ols",
 ).fit()
 
@@ -42,6 +53,8 @@ print(result.p_cdf)        # empirical CDF p-values
 result_gls = CSEventStudy(
     df, event_date=0, pre_start=-200, pre_end=-1,
     depvar="ret", indepvars=["lag_LNMV"],
+    panel_var="permno", time_var="tdate",
+    sample="prc.abs() > 5",
     method="gls", npc=100,
 ).fit()
 
@@ -49,6 +62,8 @@ result_gls = CSEventStudy(
 result_wb = CSEventStudy(
     df, event_date=0, pre_start=-200, pre_end=-1,
     depvar="ret", indepvars=["lag_LNMV"],
+    panel_var="permno", time_var="tdate",
+    sample="prc.abs() > 5",
     method="gls", npc=100, solver="woodbury",
 ).fit()
 ```
@@ -56,10 +71,14 @@ result_wb = CSEventStudy(
 ## Command Line
 
 ```bash
+# NOTE: The CLI currently expects event-date / pre-start / pre-end to be
+# literal values in the time-var column.  With the shipped sample data
+# (Stata integer dates), pass the raw date values:
 python -m csestudy \
-    --csv my_panel.csv \
-    --event-date 0 --pre-start -200 --pre-end -1 \
+    --csv examples/sample_data.csv \
+    --event-date 17811 --pre-start 17519 --pre-end 17808 \
     --depvar ret --indepvars lag_LNMV \
+    --panel-var permno --time-var date \
     --method gls --npc 100 \
     --out-prefix results
 ```

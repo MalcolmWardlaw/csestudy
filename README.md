@@ -58,8 +58,27 @@ The pre-event pseudo-events automatically use the same return horizon (two-day c
 The command accepts dates as integer values or Stata expressions evaluated at runtime, e.g.:
 
 ```stata
+csestudy ret lag_LNMV, eventstartdate(100) ...
 csestudy ret lag_LNMV, eventstartdate(bofd("mycal",mdy(9,19,2011))) ...
 ```
+
+Note the importance of tracking trading days rather than calendar days. If your time variable is a calendar date, you can use the `bcal` command to create a trading day variable. For example:
+
+```stata
+    bcal create trading, from(date) gen(trading_date) center(20081006) replace
+```
+
+Alternatively, many users have historically used a simple sequential integer for the time variable, with non-trading days omitted.
+
+```stata
+    bysort permno (date): gen time = _n
+    tsset permno time
+    csestudy ret lag_LNMV, eventstartdate(265) ...
+```
+
+Note that this works fine as long as the panel is strongly balanced (i.e. all stock id observations begin at the same date and exist on all trading days). This program works fine with either approach, but users should take care to guarantee that the time variable is correctly specified and that the event date is correctly aligned with the time variable. The `bcal` approach is more robust to missing data and non-trading days, while the sequential integer approach can be more convenient if your data is already structured that way.
+
+
 
 ## Installation
 
@@ -73,9 +92,31 @@ To update:
 ado update csestudy
 ```
 
+## Sample Data
+
+A synthetic dataset with realistic CRSP-like properties is included for testing. It contains 300 firms over 461 S&P 500 trading days (Jan 2007 – Nov 2008), with a size-dependent abnormal return (0.15% per sd of `lag_LNMV`) injected on 2008-10-06. The panel is long enough to support GLS estimation with a 200-day pre-event window.
+
+Load directly from GitHub:
+
+```stata
+use "https://raw.githubusercontent.com/MalcolmWardlaw/csestudy/release/examples/sample_data.dta", clear
+```
+
+Or from a local clone:
+
+```stata
+use examples/sample_data.dta, clear
+```
+
+The DGP scripts (`examples/generate_sample_data.py` and `examples/generate_sample_data.do`) are included if you want to inspect or modify the data-generating process.
+
 ## Example
 
 ```stata
+* Load sample data
+use "https://raw.githubusercontent.com/MalcolmWardlaw/csestudy/release/examples/sample_data.dta", clear
+
+* Create business calendar and set panel
 bcal create trading, from(date) gen(trading_date) center(20081006) replace
 tsset permno trading_date
 
