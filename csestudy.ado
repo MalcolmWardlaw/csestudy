@@ -3,6 +3,7 @@
 
 capture program drop csestudy
 program define csestudy, eclass
+    version 14
     syntax varlist [if], EVENTstartdate(string) ///
         FIRSTPREeventdate(string) LASTPREeventdate(string) ///
         [gls npc(real 100) coefsonly WOODbury]

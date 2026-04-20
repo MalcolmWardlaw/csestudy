@@ -167,5 +167,5 @@ enough to support GLS estimation with a 200-day pre-event window.{p_end}
 
 {phang}{cmd:. gen ret5 = ret + f1.ret + f2.ret + f3.ret + f4.ret}{p_end}
 
-{phang}{cmd:. csestudy ret lag_LNMV if abs(prc)>5, eventstartdate(0) firstpreeventdate(-204) lastpreeventdate(-5)}{p_end}
+{phang}{cmd:. csestudy ret5 lag_LNMV if abs(prc)>5, eventstartdate(0) firstpreeventdate(-204) lastpreeventdate(-5)}{p_end}
 

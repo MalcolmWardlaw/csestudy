@@ -6,4 +6,8 @@ test
 __pycache__/
 *.pyc
 .python-version
+# Python packaging artifacts
+*.egg-info/
 
+# Log files
+*.log

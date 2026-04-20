@@ -39,14 +39,18 @@ The GLS option requires a strongly balanced panel of nonmissing values for the d
 
 ### Multi-Day Event Windows
 
-`csestudy` tests a single event date per invocation. To test a multi-day event window (e.g., a two-day [0,1] CAR), construct a rolling cumulative return variable in your data before calling the command:
+`csestudy` tests a single event date per invocation. To test a multi-day event window (e.g., a five-day [0,5] CAR), construct a rolling cumulative return variable in your data before calling the command:
 
 ```stata
-* Example: two-day cumulative return for a [0,1] window
-gen ret2d = (1 + ret) * (1 + L.ret) - 1
-
 * Test using the last day of the window as the event date
-csestudy ret2d lag_LNMV if abs(prc)>5, eventstartdate(1) firstpreeventdate(-199) lastpreeventdate(0) gls npc(100)
+gen ret5 = ret + l1.ret + l2.ret + l3.ret + l4.ret
+csestudy ret2d lag_LNMV if abs(prc)>5, eventstartdate(4) firstpreeventdate(-199) lastpreeventdate(-1) gls npc(100)
+
+* Test using the first day of the window as the event date
+gen ret5 = ret + f1.ret + f2.ret + f3.ret + f4.ret
+csestudy ret lag_LNMV if abs(prc)>5, eventstartdate(0) firstpreeventdate(-204)
+        lastpreeventdate(-5)
+
 ```
 
 The pre-event pseudo-events automatically use the same return horizon (two-day cumulative returns centered on each pre-event date), so you only need to construct the variable once for the entire time series.
