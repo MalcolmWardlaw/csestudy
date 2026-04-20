@@ -44,11 +44,11 @@ The GLS option requires a strongly balanced panel of nonmissing values for the d
 ```stata
 * Test using the last day of the window as the event date
 gen ret5 = ret + l1.ret + l2.ret + l3.ret + l4.ret
-csestudy ret2d lag_LNMV if abs(prc)>5, eventstartdate(4) firstpreeventdate(-199) lastpreeventdate(-1) gls npc(100)
+csestudy ret5 lag_LNMV if abs(prc)>5, eventstartdate(4) firstpreeventdate(-199) lastpreeventdate(-1) gls npc(100)
 
 * Test using the first day of the window as the event date
 gen ret5 = ret + f1.ret + f2.ret + f3.ret + f4.ret
-csestudy ret lag_LNMV if abs(prc)>5, eventstartdate(0) firstpreeventdate(-204)
+csestudy ret5 lag_LNMV if abs(prc)>5, eventstartdate(0) firstpreeventdate(-204)
         lastpreeventdate(-5)
 
 ```
