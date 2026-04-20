@@ -53,7 +53,7 @@ csestudy ret lag_LNMV if abs(prc)>5, eventstartdate(0) firstpreeventdate(-204)
 
 ```
 
-The pre-event pseudo-events automatically use the same return horizon (two-day cumulative returns centered on each pre-event date), so you only need to construct the variable once for the entire time series.
+The pre-event pseudo-events automatically use the same return horizon (five-day cumulative returns centered on each pre-event date), so you only need to construct the variable once for the entire time series.
 
 **Note:** When running separate single-day tests on consecutive days (e.g., day 0 and day 1), the pre-event window length must equal `eventstartdate` - `firstpreeventdate`. This means the `firstpreeventdate` shifts forward by one day for each subsequent event date. This is by design — each pseudo-event needs its own pre-event window of the same length.
 
