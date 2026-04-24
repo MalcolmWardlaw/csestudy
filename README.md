@@ -86,6 +86,21 @@ Note that this works fine as long as the panel is strongly balanced (i.e. all st
 
 ## Installation
 
+`csestudy` is now available from SSC. The usual method of installation is
+
+```stata
+ssc install csestudy, replace
+```
+
+
+If you wish to install the latest release directly from GitHub, you can install via the following.
+
+```stata
+net install csestudy, from("https://malcolmwardlaw.github.io/csestudy/") all replace
+```
+
+
+
 ```stata
 net install csestudy, from("https://malcolmwardlaw.github.io/csestudy/") all replace
 ```
