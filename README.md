@@ -1,12 +1,45 @@
 # CSESTUDY: Efficient Inference for Cross-Sectional Event Studies
 
-Stata and Python implementations of the time-series approach to cross-sectional event study inference described in:
+**Stata, Python, and R implementations** of the time-series approach to cross-sectional event study inference described in:
 
 > Cohn, Johnson, Liu, and Wardlaw (2026), "Past is Prologue: Inference from the Cross Section of Returns Around an Event," *Journal of Financial Economics* 180, 104278. [doi:10.1016/j.jfineco.2026.104278](https://doi.org/10.1016/j.jfineco.2026.104278)
 
 SSRN: https://ssrn.com/abstract=4296657
 
+`csestudy` provides correct standard errors and p-values for cross-sectional event studies — abnormal-return regressions estimated on the cross section of stock returns around a corporate event date. It corrects for the strong cross-correlation structure in returns (which industry-clustered standard errors do not address) by benchmarking the event-day relationship against the distribution of the same relationship on pre-event days, using OLS or GLS with a PCA-based covariance estimate, and reporting an empirical-CDF p-value and a parametric p-value. The same method is available as a Stata command, a Python package, and an R package.
+
 Feedback is welcome. Please open an issue if something appears to fail or work incorrectly.
+
+## Implementations (Stata · Python · R)
+
+The identical methodology is implemented in three languages. Pick whichever fits your workflow — results agree numerically across all three on the shared sample data.
+
+| Language | Install | Entry point | Docs |
+|----------|---------|-------------|------|
+| **Stata** | `ssc install csestudy, replace` | `csestudy` command | [help file](csestudy.sthlp) · below |
+| **Python** | `pip install ./python` | `csestudy.CSEventStudy` | [python/README.md](python/README.md) |
+| **R** | `remotes::install_github("MalcolmWardlaw/csestudy", subdir = "r")` | `csestudy()` | [r/README.md](r/README.md) |
+
+```stata
+// Stata
+csestudy depvar [indepvars] [if] , eventstartdate(string) firstpreeventdate(string) lastpreeventdate(string)
+```
+
+```python
+# Python
+from csestudy import CSEventStudy
+res = CSEventStudy(df, event_date=0, pre_start=-200, pre_end=-1,
+                   depvar="ret", indepvars=["lag_LNMV"], method="gls").fit()
+```
+
+```r
+# R
+library(csestudy)
+fit <- csestudy(df, depvar = "ret", indepvars = "lag_LNMV",
+                event_date = 0, pre_start = -200, pre_end = -1, method = "gls")
+```
+
+The remainder of this README documents the **Stata** command. See [python/README.md](python/README.md) and [r/README.md](r/README.md) for the Python and R packages.
 
 ## Basic Description
 
@@ -84,32 +117,29 @@ Note that this works fine as long as the panel is strongly balanced (i.e. all st
 
 
 
-## Installation
+## Installation (Stata)
 
-`csestudy` is now available from SSC. The usual method of installation is
+`csestudy` is available from **SSC**, and this is the recommended way to install it:
 
 ```stata
 ssc install csestudy, replace
 ```
 
-
-If you wish to install the latest release directly from GitHub, you can install via the following.
-
-```stata
-net install csestudy, from("https://malcolmwardlaw.github.io/csestudy/") all replace
-```
-
-
-
-```stata
-net install csestudy, from("https://malcolmwardlaw.github.io/csestudy/") all replace
-```
-
-To update:
+To update later:
 
 ```stata
 ado update csestudy
 ```
+
+### Bleeding-edge release from GitHub
+
+If you want the latest release before it propagates to SSC, install directly from the GitHub Pages mirror:
+
+```stata
+net install csestudy, from("https://malcolmwardlaw.github.io/csestudy/") all replace
+```
+
+For the Python and R packages, see [python/README.md](python/README.md) and [r/README.md](r/README.md).
 
 ## Sample Data
 
@@ -127,7 +157,7 @@ Or from a local clone:
 use examples/sample_data.dta, clear
 ```
 
-The DGP scripts (`examples/generate_sample_data.py` and `examples/generate_sample_data.do`) are included if you want to inspect or modify the data-generating process.
+A CSV copy (`examples/sample_data.csv`) is also included for the Python and R packages. The DGP scripts (`examples/generate_sample_data.py` and `examples/generate_sample_data.do`) are included if you want to inspect or modify the data-generating process.
 
 ## Example
 
@@ -164,3 +194,7 @@ If you use this software, please cite:
   doi={10.1016/j.jfineco.2026.104278}
 }
 ```
+
+---
+
+*Keywords: cross-sectional event study, abnormal returns, event study standard errors, time-series inference, GLS, FGLS, PCA covariance, cross-correlation in stock returns, empirical p-value, Stata, Python, R, finance, econometrics, asset pricing.*

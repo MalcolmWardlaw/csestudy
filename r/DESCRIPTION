@@ -1,0 +1,29 @@
+Package: csestudy
+Type: Package
+Title: Time-Series Inference for Cross-Sectional Event Studies
+Version: 0.1.0
+Authors@R: c(
+    person("Jonathan B.", "Cohn", role = "aut"),
+    person("Travis L.", "Johnson", role = "aut"),
+    person("Zack", "Liu", role = "aut"),
+    person("Malcolm I.", "Wardlaw", role = c("aut", "cre"),
+           email = "malcolm.wardlaw@uga.edu"))
+Description: Implements the time-series approach to cross-sectional event-study
+    inference of Cohn, Johnson, Liu and Wardlaw (2026)
+    <doi:10.1016/j.jfineco.2026.104278>. The event-period cross-sectional
+    relationship is benchmarked against a distribution of the same relationship
+    estimated on pre-event days, using either ordinary least squares or
+    generalized least squares with a principal-component covariance estimate.
+    Rejection is summarised by an empirical cumulative-distribution-function
+    p-value and a parametric p-value.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Imports:
+    stats
+Suggests:
+    testthat (>= 3.0.0)
+URL: https://github.com/MalcolmWardlaw/csestudy
+BugReports: https://github.com/MalcolmWardlaw/csestudy/issues
+Roxygen: list(markdown = TRUE)
+Config/testthat/edition: 3
+Config/roxygen2/version: 8.0.0
